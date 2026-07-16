@@ -12,9 +12,11 @@ with a warning).
 
 Stages (each rerunnable on its own via --stage / --from-stage)
 --------
-  prep      step01 annotate (SEC= tags) + step02 stats (metadata + family).
-            Annotated COPIES are written under the output root; INPUTS ARE
-            NEVER MODIFIED.  Runs once and is shared by all approaches.
+  prep      fetch source PDBs from RCSB (any missing from the dataset's
+            pdb-files/; skip with --no-fetch) -> step01 annotate (SEC= tags)
+            -> step02 stats (metadata + family).  Annotated COPIES are written
+            under the output root; INPUTS ARE NEVER MODIFIED.  Runs once and is
+            shared by all approaches.
   cluster   the selected approaches:
               step03 approach1  Aligned Cartesian featurization + clustering
               step04 approach2  Z-matrix featurization (optional)
@@ -104,6 +106,20 @@ def _run(
 # ---------------------------------------------------------------------------
 # Steps
 # ---------------------------------------------------------------------------
+
+def step_fetch_pdbs(xyz_dir: Path, pdb_dir: Path, glob_pat: str, force: bool) -> None:
+    """Download any source PDBs missing from pdb_dir (idempotent, once per dataset).
+
+    Non-fatal: individual missing/obsolete ids are reported but do not abort the
+    pipeline (annotate/stats warn per-file for anything still absent).
+    """
+    print("  run   step00 fetch_pdbs")
+    cmd = [_PYTHON, "-m", "zn_cys_his.clustering.fetch_pdbs",
+           "--xyz-dir", xyz_dir, "--pdb-dir", pdb_dir, "--glob", glob_pat]
+    if force:
+        cmd.append("--force")
+    subprocess.run([str(c) for c in cmd], check=False)
+
 
 def step_annotate(
     src_xyz_dir: Path,
@@ -287,6 +303,9 @@ def main() -> int:
                         help="Run ONLY this stage (prep | cluster | validate). Default: all.")
     parser.add_argument("--from-stage", dest="from_stage", choices=STAGES, default=None,
                         help="Run this stage and every stage after it.")
+    parser.add_argument("--no-fetch", action="store_true",
+                        help="Skip the prep-stage PDB download from RCSB (use whatever "
+                             "PDBs are already present in the pdb dir).")
     args = parser.parse_args()
 
     if args.stage and args.from_stage:
@@ -324,12 +343,15 @@ def main() -> int:
     print(f"             stages={[s for s in STAGES if s in run]} approaches={approaches} "
           f"k={k_min}..{k_max} ===\n")
 
-    # ----- prep: annotate (writes copies) + stats -------------------------
+    # ----- prep: fetch PDBs -> annotate (writes copies) -> stats -----------
     if "prep" in run:
-        if annot_pdb_dir.is_dir():
+        if not args.no_fetch and pdb_dir is None:
+            # Repopulate the dataset's (un-versioned) pdb-files/ from RCSB.
+            step_fetch_pdbs(xyz_raw, annot_pdb_dir, active_glob, args.force)
+        if annot_pdb_dir.is_dir() and any(annot_pdb_dir.glob("*.pdb")):
             step_annotate(xyz_raw, annot_pdb_dir, annotated_xyz, args.force, glob_pat=active_glob)
         else:
-            print(f"  skip  step01 annotate_secstruct (no PDB dir found at {annot_pdb_dir})")
+            print(f"  skip  step01 annotate_secstruct (no PDBs found at {annot_pdb_dir})")
         stats_src = annotated_xyz if annotated_xyz.is_dir() else xyz_raw
         if stats_override is None and annot_pdb_dir.is_dir():
             step_compute_stats(stats_src, annot_pdb_dir, prep_stats, args.force, glob_pat=active_glob)

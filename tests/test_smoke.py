@@ -21,6 +21,7 @@ STEP_MODULES = [
 ]
 
 ENTRYPOINT_MODULES = STEP_MODULES + [
+    "zn_cys_his.clustering.fetch_pdbs",
     "zn_cys_his.spectra.sample",
     "zn_cys_his.spectra.plot",
     "zn_cys_his.query_app.build_db",

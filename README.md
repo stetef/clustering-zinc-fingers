@@ -21,9 +21,9 @@ src/zn_cys_his/            # installable package (src layout)
   spectra/                 # sample cluster representatives + plot XANES/EXAFS/χ(R)
   query_app/               # Streamlit app + its prebuilt structures.db / csv / cache
 data/                      # READ-ONLY inputs (gitignored, kept locally)
-  <dataset>/xyz-files/     # raw pocket XYZ
-  <dataset>/pdb-files/     # source .pdb files (secondary structure, B-factors)
-  4cys-large/calculated-spectra/   # precomputed FEFF spectra (input to spectra viz)
+  <dataset>/xyz-files/     # raw pocket XYZ            (version-controlled)
+  <dataset>/pdb-files/     # source .pdb files         (NOT versioned; zch-fetch-pdbs)
+  4cys-large/calculated-spectra/   # precomputed FEFF spectra  (version-controlled)
 cluster-output/            # ALL generated artifacts, mirroring data/ (gitignored)
   <dataset>/prep/          # annotated XYZ copies + structure_stats.csv
   <dataset>/approach{1,2,3}/  validation/   # clustering outputs + validation
@@ -36,11 +36,17 @@ The pipeline **step modules are numbered in the order `orchestrate.py` runs them
 (annotate → stats → approaches → validate); module names can't start with a digit,
 hence the `stepNN_` prefix.
 
-**Inputs vs. outputs.** `data/` holds only read-only inputs (`xyz-files/`,
-`pdb-files/`, and precomputed spectra). Everything the pipeline generates —
-annotated XYZ copies, per-structure stats, clustering results, validation —
-lands in `cluster-output/<dataset>/`, mirroring `data/`. The input XYZ files are
-never modified. Wipe a run with `rm -rf cluster-output/<dataset>`.
+**Inputs vs. outputs.** `data/` holds only read-only inputs; everything the
+pipeline generates — annotated XYZ copies, per-structure stats, clustering
+results, validation — lands in `cluster-output/<dataset>/`, mirroring `data/`.
+The input XYZ files are never modified. Wipe a run with `rm -rf cluster-output/<dataset>`.
+
+**What's version-controlled.** The small, hard-to-regenerate text inputs are
+committed: `xyz-files/` (cleaned pocket XYZ) and `calculated-spectra/` (FEFF
+output, ~11 MB). The large, freely re-downloadable `pdb-files/` (~2 GB) are
+**not** committed — the prep stage repopulates them from RCSB automatically
+(`zch-fetch-pdbs`, run once), so a fresh clone only needs a network connection
+to run the full pipeline. `cluster-output/` is regenerated and never committed.
 
 ## Setup
 
@@ -57,6 +63,7 @@ This registers the console scripts below. Dependencies are intentionally minimal
 | Command | Module | Purpose |
 |---|---|---|
 | `zch-pipeline` | `zn_cys_his.clustering.orchestrate` | run the full clustering pipeline |
+| `zch-fetch-pdbs` | `zn_cys_his.clustering.fetch_pdbs` | download source PDBs from RCSB (run automatically by prep) |
 | `zch-sample-spectra` | `zn_cys_his.spectra.sample` | sample cluster representatives for spectra |
 | `zch-plot-spectra` | `zn_cys_his.spectra.plot` | plot XANES/EXAFS/χ(R) + interactive report |
 | `zch-build-db` | `zn_cys_his.query_app.build_db` | rebuild the query app's SQLite DB |

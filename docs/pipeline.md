@@ -1,8 +1,13 @@
 # Zn(Cys/His)₄ Structure Clustering Pipeline
 
 Detailed reference for the clustering pipeline. Console scripts: `zch-pipeline`,
-`zch-sample-spectra`, `zch-plot-spectra`, `zch-build-db` (each equivalent to
-`python -m zn_cys_his...`). All commands run from the repo root via `uv run`.
+`zch-fetch-pdbs`, `zch-sample-spectra`, `zch-plot-spectra`, `zch-build-db` (each
+equivalent to `python -m zn_cys_his...`). All commands run from the repo root
+via `uv run`.
+
+> **PDBs are not version-controlled.** `xyz-files/` and `calculated-spectra/` are
+> committed; the ~2 GB `pdb-files/` are re-downloaded from RCSB by the prep stage
+> (`zch-fetch-pdbs`, run once). Pass `--no-fetch` to skip the download.
 
 ## Quick command reference
 

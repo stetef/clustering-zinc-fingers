@@ -14,7 +14,7 @@ runs **three stages**, each independently rerunnable via `--stage` / `--from-sta
 
 | Stage | Modules | Does | Writes to |
 |---|---|---|---|
-| **prep** | step01 annotate → step02 stats | Tags CA atoms with `SEC=` from the PDB (writing annotated **copies**), then computes per-structure metadata + `family` string. Runs once, shared by all approaches. | `cluster-output/<ds>/prep/annotated_xyz/`, `prep/structure_stats.csv` |
+| **prep** | fetch_pdbs → step01 annotate → step02 stats | Downloads any missing source PDBs from RCSB (`--no-fetch` to skip), tags CA atoms with `SEC=` from the PDB (writing annotated **copies**), then computes per-structure metadata + `family` string. Runs once, shared by all approaches. | `data/<ds>/pdb-files/` (fetch), `cluster-output/<ds>/prep/{annotated_xyz/, structure_stats.csv}` |
 | **cluster** | step03 approach1, step04 approach2, step05 approach3 | The selected featurization + k-means approaches (`--approaches`). Each auto-emits `cluster_pdb_family.csv`. | `cluster-output/<ds>/approach{1,2,3}/` |
 | **validate** | step06 validate_clusters | Per-approach RMSD metrics, k-sweep plots, PCA→XYZ, and cross-approach comparison over whatever approach outputs exist. | `cluster-output/<ds>/validation/{approach*,comparison}/` |
 
@@ -87,7 +87,18 @@ tests/                     # test_smoke.py
 ```
 
 Console scripts (from `pyproject.toml`, each == `python -m <module>`):
-`zch-pipeline`, `zch-sample-spectra`, `zch-plot-spectra`, `zch-build-db`.
+`zch-pipeline`, `zch-fetch-pdbs`, `zch-sample-spectra`, `zch-plot-spectra`,
+`zch-build-db`.
+
+## Version-control policy for `data/`
+
+Only the small, hard-to-regenerate **text inputs** are committed:
+`xyz-files/` + `initial_xyz_files/` (cleaned pocket XYZ, ~19 MB) and
+`calculated-spectra/` (FEFF `.dat`, ~11 MB). The large, freely re-downloadable
+`pdb-files/` (~2 GB) are **not** committed — the prep stage fetches them from
+RCSB via `zch-fetch-pdbs` (idempotent, once). Generated
+`analysis-and-visualization/` plots and the whole `cluster-output/` tree are
+also excluded. See `.gitignore`.
 
 ---
 
@@ -140,6 +151,14 @@ Console scripts (from `pyproject.toml`, each == `python -m <module>`):
 - [x] Migrate existing test-set artifacts to `cluster-output/`; repoint `build_db.py` + spectra defaults.
 - [x] Update `.gitignore`, tests, README, `pipeline.md`.
 - [x] Verify (uv sync, 18 smoke tests, prep + cluster stages end-to-end) and commit.
+
+---
+
+### Round 4 — data version-control + PDB fetch
+- [x] `.gitignore`: version `xyz-files/`, `initial_xyz_files/`, `calculated-spectra/`; exclude `pdb-files/`, `analysis-and-visualization/`, `cluster-output/`.
+- [x] `fetch_pdbs.py` + `zch-fetch-pdbs`: download any PDB missing for an XYZ id from RCSB.
+- [x] Wire fetch into the prep stage (idempotent; `--no-fetch` to skip; failures non-fatal).
+- [x] Remove stale `.secstruct_annotated` sentinels from input dirs.
 
 ---
 

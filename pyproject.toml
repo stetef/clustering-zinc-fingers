@@ -31,8 +31,10 @@ dev = [
 ]
 
 [project.scripts]
-# Clustering pipeline orchestrator (chains step01..step07).
+# Clustering pipeline orchestrator (prep -> cluster -> validate).
 zch-pipeline = "zn_cys_his.clustering.orchestrate:main"
+# Fetch source PDBs from RCSB for a dataset's XYZ structures.
+zch-fetch-pdbs = "zn_cys_his.clustering.fetch_pdbs:main"
 # Spectra sampling + visualization.
 zch-sample-spectra = "zn_cys_his.spectra.sample:main"
 zch-plot-spectra = "zn_cys_his.spectra.plot:main"
