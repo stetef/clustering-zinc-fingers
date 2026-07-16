@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "zn-cys-his"
+version = "0.1.0"
+description = "Clustering and spectra analysis of Zn(Cys/His) metal-site structures."
+readme = "README.md"
+requires-python = ">=3.12"
+
+dependencies = [
+    # clustering pipeline + spectra viz
+    "numpy>=2.0",
+    "scikit-learn>=1.6",
+    "matplotlib>=3.10",
+    "plotly>=5.0",
+    "tqdm>=4.67",
+    "pandas>=2.0",
+    # query_app (Streamlit + RCSB metadata fetch)
+    "streamlit>=1.30",
+    "requests>=2.32",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "black",
+    "isort",
+    "flake8",
+]
+
+[project.scripts]
+# Clustering pipeline orchestrator (chains step01..step07).
+zch-pipeline = "zn_cys_his.clustering.orchestrate:main"
+# Spectra sampling + visualization.
+zch-sample-spectra = "zn_cys_his.spectra.sample:main"
+zch-plot-spectra = "zn_cys_his.spectra.plot:main"
+# Rebuild the structure-query app's SQLite database.
+zch-build-db = "zn_cys_his.query_app.build_db:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# Ship the query app's prebuilt DB / cache / CSVs as package data.
+[tool.setuptools.package-data]
+"zn_cys_his.query_app" = ["structures.db", "metadata_cache.json", "csv/*.csv"]
+
+[tool.black]
+line-length = 120
+target-version = ['py312']
+
+[tool.isort]
+profile = "black"
+line_length = 120
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
