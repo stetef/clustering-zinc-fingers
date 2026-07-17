@@ -1,10 +1,28 @@
-# zn-cys-his
+<div align="center">
 
-Clustering and spectra analysis of four-coordinate **Zn(Cys/His)** metal-site
-structures, extracted and cleaned from the RCSB PDB. Split out of the larger
-`pdb-scraper` project so the clustering can be rerun cleanly and in isolation.
+<img src="docs/images/zn-finger-charcoal.png" alt="Zinc-finger metal site — a Zn ion coordinated by cysteine and histidine residues, charcoal illustration" width="720">
 
-## Layout
+# 🧬 zn-cys-his
+
+### Clustering & spectra analysis of four-coordinate **Zn(Cys/His)** metal sites
+
+*Structures extracted and cleaned from the RCSB PDB — split out of the larger*
+*`pdb-scraper` project so the clustering can be rerun cleanly and in isolation.*
+
+<br>
+
+[![Live demo](https://img.shields.io/badge/🚀_live_demo-Streamlit-FF4B4B?logo=streamlit&logoColor=white)](https://zn-cys-his.streamlit.app)
+![Python](https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white)
+![License: MIT](https://img.shields.io/badge/License-MIT-A31F34)
+![scikit-learn](https://img.shields.io/badge/clustering-scikit--learn-F7931E?logo=scikitlearn&logoColor=white)
+![Streamlit](https://img.shields.io/badge/query%20app-Streamlit-FF4B4B?logo=streamlit&logoColor=white)
+![Built with uv](https://img.shields.io/badge/built%20with-uv-DE5FE9)
+
+</div>
+
+---
+
+## 📂 Layout
 
 ```
 src/zn_cys_his/            # installable package (src layout)
@@ -48,7 +66,9 @@ output, ~11 MB). The large, freely re-downloadable `pdb-files/` (~2 GB) are
 (`zch-fetch-pdbs`, run once), so a fresh clone only needs a network connection
 to run the full pipeline. `cluster-output/` is regenerated and never committed.
 
-## Setup
+---
+
+## ⚙️ Setup
 
 ```bash
 uv sync         # installs deps + this package (editable) into .venv
@@ -58,7 +78,7 @@ This registers the console scripts below. Dependencies are intentionally minimal
 `numpy`, `scikit-learn`, `matplotlib`, `plotly`, `tqdm`, `pandas`, plus `streamlit` +
 `requests` for the query app.
 
-## Console scripts
+## 🛠️ Console scripts
 
 | Command | Module | Purpose |
 |---|---|---|
@@ -70,7 +90,9 @@ This registers the console scripts below. Dependencies are intentionally minimal
 
 Each is equivalent to `uv run python -m <module>`.
 
-## Run the clustering pipeline
+## 🔬 Run the clustering pipeline
+
+> **Pipeline flow:**  `prep` (annotate + stats)  →  `cluster` (selected approaches)  →  `validate`
 
 The orchestrator runs three stages — **prep** (annotate + stats) → **cluster**
 (the selected approaches) → **validate** — and is idempotent (skips work whose
@@ -97,7 +119,7 @@ Artifacts land under `cluster-output/<dataset>/{prep,approach1,approach3,validat
 `cluster_pdb_family.csv`. See [docs/pipeline.md](docs/pipeline.md) for the full
 description of every step, featurization approach, and parameter.
 
-## Sampling + spectra visualization
+## 📈 Sampling + spectra visualization
 
 `zch-sample-spectra` samples cluster representatives from the 4cys clustering
 (`cluster-output/4cys-large/approach1`), protonating each and tagging
@@ -116,7 +138,19 @@ uv run zch-plot-spectra
 To run against another dataset, pass `--station` / `--approach` / `--out`
 explicitly, or generate a station of precomputed spectra for it first.
 
-## Structure-query app
+## 🔎 Structure-query app
+
+An interactive [Streamlit](https://streamlit.io) app for slicing the clustered Zn
+sites by dataset, cluster, publication status, and any numeric stat range — joined
+to RCSB publication metadata, with clickable structure links and CSV export.
+
+> **🚀 Try it live:** **[zn-cys-his.streamlit.app](https://zn-cys-his.streamlit.app)**
+
+<div align="center">
+<img src="docs/images/streamlit-screenshot.png" alt="The Zn-site structure query app: sidebar filters, match-count metrics, and a results table" width="820">
+</div>
+
+Or run it locally:
 
 ```bash
 uv run streamlit run src/zn_cys_his/query_app/app.py
@@ -131,3 +165,9 @@ uv run zch-build-db
 
 See [src/zn_cys_his/query_app/README.md](src/zn_cys_his/query_app/README.md) for
 app-specific details.
+
+---
+
+<div align="center">
+<sub>Built at <b>SLAC National Accelerator Laboratory</b> · Zn(Cys/His) metal-site analysis · MIT licensed</sub>
+</div>

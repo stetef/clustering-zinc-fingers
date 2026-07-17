@@ -23,7 +23,10 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from zn_cys_his.paths import DATA_DIR  # repo-root/data (for showing xyz_path relative)
+try:  # normal path: run against the installed package
+    from zn_cys_his.paths import DATA_DIR  # repo-root/data (for showing xyz_path relative)
+except ModuleNotFoundError:  # deployed without the package installed (e.g. Streamlit Cloud)
+    DATA_DIR = Path(__file__).resolve().parents[3] / "data"
 
 DB_PATH = Path(__file__).resolve().parent / "structures.db"
 
