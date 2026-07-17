@@ -1,28 +1,123 @@
 <div align="center">
 
-<img src="docs/images/zn-finger-charcoal.png" alt="Zinc-finger metal site — a Zn ion coordinated by cysteine and histidine residues, charcoal illustration" width="720">
+<img src="docs/images/zn-finger-charcoal.png" alt="Zinc-finger metal site — a Zn ion coordinated by cysteine and histidine residues, charcoal illustration" width="460">
 
 # 🧬 zn-cys-his
 
-### Clustering & spectra analysis of four-coordinate **Zn(Cys/His)** metal sites
-
-*Structures extracted and cleaned from the RCSB PDB — split out of the larger*
-*`pdb-scraper` project so the clustering can be rerun cleanly and in isolation.*
-
-<br>
+**Clustering & X-ray spectra analysis of four-coordinate Zn(Cys/His) metal sites, mined from the RCSB PDB.**
 
 [![Live demo](https://img.shields.io/badge/🚀_live_demo-Streamlit-FF4B4B?logo=streamlit&logoColor=white)](https://zn-cys-his.streamlit.app)
 ![Python](https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white)
 ![License: MIT](https://img.shields.io/badge/License-MIT-A31F34)
 ![scikit-learn](https://img.shields.io/badge/clustering-scikit--learn-F7931E?logo=scikitlearn&logoColor=white)
-![Streamlit](https://img.shields.io/badge/query%20app-Streamlit-FF4B4B?logo=streamlit&logoColor=white)
 ![Built with uv](https://img.shields.io/badge/built%20with-uv-DE5FE9)
 
 </div>
 
----
+Cleaned zinc-pocket structures go in → they're **clustered** by local geometry across
+cys/his compositions → cluster representatives are sampled for **XANES/EXAFS spectra** →
+and everything is explorable through an interactive **query app**. Split out of the
+larger `pdb-scraper` project so the clustering reruns cleanly in isolation.
 
-## 📂 Layout
+## 🚀 Live demo
+
+> ### [**Open the structure-query app →**](https://zn-cys-his.streamlit.app)
+> Filter thousands of clustered Zn sites by geometry, cluster, and RCSB publication
+> metadata — with clickable structure links and CSV export. No install required.
+
+<div align="center">
+<img src="docs/images/streamlit-screenshot.png" alt="The Zn-site structure query app: sidebar filters, match-count metrics, and a results table" width="760">
+</div>
+
+## ⚡ Quickstart
+
+```bash
+uv sync                                                # install deps + package into .venv
+uv run zch-pipeline --base-dir data/4cys-large         # prep → cluster → validate
+uv run streamlit run src/zn_cys_his/query_app/app.py   # explore the results locally
+```
+
+Dependencies are intentionally minimal: `numpy`, `scikit-learn`, `matplotlib`, `plotly`,
+`pandas`, `tqdm`, plus `streamlit` + `requests` for the query app.
+
+## 🔬 Clustering pipeline
+
+`prep` (annotate + stats) → `cluster` (featurize + k-means) → `validate` (RMSD, plots,
+PCA→XYZ). Idempotent — it skips work whose output exists; pass `--force` to redo.
+
+```bash
+uv run zch-pipeline --base-dir data/4cys-large       # full run → cluster-output/4cys-large/
+uv run zch-pipeline --base-dir data/2cys2his-large   # any composition — auto-detected
+```
+
+<details>
+<summary><b>Rerun a single stage · where artifacts land · full docs</b></summary>
+
+<br>
+
+```bash
+uv run zch-pipeline --base-dir data/4cys-large --stage cluster --approaches 3  # re-cluster approach 3 only
+uv run zch-pipeline --base-dir data/4cys-large --stage validate               # redo validation / plots
+uv run zch-pipeline --base-dir data/4cys-large --from-stage cluster           # cluster + validate, skip prep
+```
+
+Artifacts land under `cluster-output/<dataset>/{prep,approach1,approach3,validation}/`
+(override the root with `--out-dir`); each approach auto-emits `cluster_pdb_family.csv`.
+See [docs/pipeline.md](docs/pipeline.md) for every step, featurization approach, and parameter.
+
+</details>
+
+## 📈 Spectra
+
+```bash
+uv run zch-sample-spectra   # sample cluster reps (protonated, CHARGE/MULTIPLICITY tagged)
+uv run zch-plot-spectra     # XANES / EXAFS / χ(R) overlays + interactive report
+```
+
+<details>
+<summary><b>Charge model · other datasets</b></summary>
+
+<br>
+
+`zch-sample-spectra` samples representatives from the 4cys clustering
+(`cluster-output/4cys-large/approach1`). Charge is derived per structure as `2 − n_cys`
+(4cys −2, 3cys1his −1, 2cys2his 0, 1cys3his +1, 4his +2); multiplicity 1 — override with
+`--charge`/`--multiplicity` or skip via `--no-charge-mult`. `zch-plot-spectra` reads the
+precomputed FEFF spectra in `data/4cys-large/calculated-spectra/` and writes the
+report/overlays to a sibling `analysis-and-visualization/`. To target another dataset,
+pass `--station` / `--approach` / `--out` (generate its precomputed spectra first).
+
+</details>
+
+## 🔎 Query app
+
+The [live demo](https://zn-cys-his.streamlit.app) runs off the prebuilt
+`src/zn_cys_his/query_app/structures.db`. Rebuild it after a fresh pipeline run (once new
+`approach1/kmeans_labels_with_stats.csv` files exist), then relaunch:
+
+```bash
+uv run zch-build-db
+uv run streamlit run src/zn_cys_his/query_app/app.py
+```
+
+App-specific details live in [query_app/README.md](src/zn_cys_his/query_app/README.md).
+
+## 🛠️ Console scripts
+
+| Command | Purpose |
+|---|---|
+| `zch-pipeline` | run the full clustering pipeline |
+| `zch-fetch-pdbs` | download source PDBs from RCSB *(run automatically by prep)* |
+| `zch-sample-spectra` | sample cluster representatives for spectra |
+| `zch-plot-spectra` | plot XANES/EXAFS/χ(R) + interactive report |
+| `zch-build-db` | rebuild the query app's SQLite DB |
+
+Each is equivalent to `uv run python -m <module>` (see [pyproject.toml](pyproject.toml)).
+
+<details>
+<summary><b>📂 Repository layout</b></summary>
+
+<br>
 
 ```
 src/zn_cys_his/            # installable package (src layout)
@@ -50,121 +145,17 @@ docs/
   filtering.md             # gather/clean filtering funnel per dataset
 ```
 
-The pipeline **step modules are numbered in the order `orchestrate.py` runs them**
-(annotate → stats → approaches → validate); module names can't start with a digit,
-hence the `stepNN_` prefix.
+- **Step modules are numbered in `orchestrate.py`'s run order** (annotate → stats →
+  approaches → validate); Python module names can't start with a digit, hence `stepNN_`.
+- **Inputs vs. outputs.** `data/` is read-only input; everything generated lands in
+  `cluster-output/<dataset>/`, mirroring `data/`. Input XYZ files are never modified —
+  wipe a run with `rm -rf cluster-output/<dataset>`.
+- **Version control.** Small, hard-to-regenerate text inputs are committed: `xyz-files/`
+  and `calculated-spectra/` (FEFF output, ~11 MB). The large, re-downloadable
+  `pdb-files/` (~2 GB) are **not** — prep repopulates them from RCSB (`zch-fetch-pdbs`,
+  once), so a fresh clone only needs a network connection. `cluster-output/` is never committed.
 
-**Inputs vs. outputs.** `data/` holds only read-only inputs; everything the
-pipeline generates — annotated XYZ copies, per-structure stats, clustering
-results, validation — lands in `cluster-output/<dataset>/`, mirroring `data/`.
-The input XYZ files are never modified. Wipe a run with `rm -rf cluster-output/<dataset>`.
-
-**What's version-controlled.** The small, hard-to-regenerate text inputs are
-committed: `xyz-files/` (cleaned pocket XYZ) and `calculated-spectra/` (FEFF
-output, ~11 MB). The large, freely re-downloadable `pdb-files/` (~2 GB) are
-**not** committed — the prep stage repopulates them from RCSB automatically
-(`zch-fetch-pdbs`, run once), so a fresh clone only needs a network connection
-to run the full pipeline. `cluster-output/` is regenerated and never committed.
-
----
-
-## ⚙️ Setup
-
-```bash
-uv sync         # installs deps + this package (editable) into .venv
-```
-
-This registers the console scripts below. Dependencies are intentionally minimal —
-`numpy`, `scikit-learn`, `matplotlib`, `plotly`, `tqdm`, `pandas`, plus `streamlit` +
-`requests` for the query app.
-
-## 🛠️ Console scripts
-
-| Command | Module | Purpose |
-|---|---|---|
-| `zch-pipeline` | `zn_cys_his.clustering.orchestrate` | run the full clustering pipeline |
-| `zch-fetch-pdbs` | `zn_cys_his.clustering.fetch_pdbs` | download source PDBs from RCSB (run automatically by prep) |
-| `zch-sample-spectra` | `zn_cys_his.spectra.sample` | sample cluster representatives for spectra |
-| `zch-plot-spectra` | `zn_cys_his.spectra.plot` | plot XANES/EXAFS/χ(R) + interactive report |
-| `zch-build-db` | `zn_cys_his.query_app.build_db` | rebuild the query app's SQLite DB |
-
-Each is equivalent to `uv run python -m <module>`.
-
-## 🔬 Run the clustering pipeline
-
-> **Pipeline flow:**  `prep` (annotate + stats)  →  `cluster` (selected approaches)  →  `validate`
-
-The orchestrator runs three stages — **prep** (annotate + stats) → **cluster**
-(the selected approaches) → **validate** — and is idempotent (skips work whose
-output already exists; pass `--force` to redo). Point `--base-dir` at any dataset:
-
-```bash
-# Full pipeline. Outputs go to cluster-output/4cys-large/ (mirroring data/).
-uv run zch-pipeline --base-dir data/4cys-large
-
-# any other composition — same command, composition is auto-detected
-uv run zch-pipeline --base-dir data/2cys2his-large
-```
-
-Rerun a single stage (or resume from one) without redoing the rest:
-
-```bash
-uv run zch-pipeline --base-dir data/4cys-large --stage cluster --approaches 3  # re-cluster only approach 3
-uv run zch-pipeline --base-dir data/4cys-large --stage validate               # redo validation/plots
-uv run zch-pipeline --base-dir data/4cys-large --from-stage cluster           # cluster + validate, skip prep
-```
-
-Artifacts land under `cluster-output/<dataset>/{prep,approach1,approach3,validation}/`
-(override the root with `--out-dir`). Each approach auto-emits
-`cluster_pdb_family.csv`. See [docs/pipeline.md](docs/pipeline.md) for the full
-description of every step, featurization approach, and parameter.
-
-## 📈 Sampling + spectra visualization
-
-`zch-sample-spectra` samples cluster representatives from the 4cys clustering
-(`cluster-output/4cys-large/approach1`), protonating each and tagging
-`CHARGE=/MULTIPLICITY=`. Charge is derived per structure as `2 − n_cys`
-(4cys=−2, 3cys1his=−1, 2cys2his=0, 1cys3his=+1, 4his=+2); multiplicity=1.
-Override with `--charge`/`--multiplicity`, or skip with `--no-charge-mult`.
-`zch-plot-spectra` reads the precomputed FEFF spectra in
-`data/4cys-large/calculated-spectra/` and writes the report/overlays to a sibling
-`analysis-and-visualization/`:
-
-```bash
-uv run zch-sample-spectra
-uv run zch-plot-spectra
-```
-
-To run against another dataset, pass `--station` / `--approach` / `--out`
-explicitly, or generate a station of precomputed spectra for it first.
-
-## 🔎 Structure-query app
-
-An interactive [Streamlit](https://streamlit.io) app for slicing the clustered Zn
-sites by dataset, cluster, publication status, and any numeric stat range — joined
-to RCSB publication metadata, with clickable structure links and CSV export.
-
-> **🚀 Try it live:** **[zn-cys-his.streamlit.app](https://zn-cys-his.streamlit.app)**
-
-<div align="center">
-<img src="docs/images/streamlit-screenshot.png" alt="The Zn-site structure query app: sidebar filters, match-count metrics, and a results table" width="820">
-</div>
-
-Or run it locally:
-
-```bash
-uv run streamlit run src/zn_cys_his/query_app/app.py
-```
-
-Runs off the prebuilt `src/zn_cys_his/query_app/structures.db`. To rebuild it (after
-the pipeline has produced fresh `approach1/kmeans_labels_with_stats.csv` files):
-
-```bash
-uv run zch-build-db
-```
-
-See [src/zn_cys_his/query_app/README.md](src/zn_cys_his/query_app/README.md) for
-app-specific details.
+</details>
 
 ---
 
