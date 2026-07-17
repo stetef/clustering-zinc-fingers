@@ -42,14 +42,14 @@ import numpy as np
 
 from zn_cys_his.paths import CLUSTER_OUTPUT
 
-DEFAULT_APPROACH = CLUSTER_OUTPUT / "test-4cys-weighted/approach1"
+DEFAULT_APPROACH = CLUSTER_OUTPUT / "4cys-large/approach1"
 DEFAULT_LABELS = DEFAULT_APPROACH / "labels.csv"
 DEFAULT_ALIGNED = DEFAULT_APPROACH / "aligned_xyz"
 DEFAULT_EXISTING = (
-    CLUSTER_OUTPUT / "test-4cys-weighted/validation/approach1/sampled-xyz-files-for-val"
+    CLUSTER_OUTPUT / "4cys-large/validation/approach1/sampled-xyz-files-for-val"
 )
 DEFAULT_OUT = (
-    CLUSTER_OUTPUT / "test-4cys-weighted/validation/approach1/sampled-xyz-files-for-val-II"
+    CLUSTER_OUTPUT / "4cys-large/validation/approach1/sampled-xyz-files-for-val-II"
 )
 
 CH_BOND = 1.09                       # C-H bond length, angstrom

@@ -99,8 +99,8 @@ description of every step, featurization approach, and parameter.
 
 ## Sampling + spectra visualization
 
-`zch-sample-spectra` samples cluster representatives from the test-set clustering
-(`cluster-output/test-4cys-weighted/approach1`), protonating each and tagging
+`zch-sample-spectra` samples cluster representatives from the 4cys clustering
+(`cluster-output/4cys-large/approach1`), protonating each and tagging
 `CHARGE=/MULTIPLICITY=`. Charge is derived per structure as `2 − n_cys`
 (4cys=−2, 3cys1his=−1, 2cys2his=0, 1cys3his=+1, 4his=+2); multiplicity=1.
 Override with `--charge`/`--multiplicity`, or skip with `--no-charge-mult`.

@@ -58,7 +58,7 @@ from zn_cys_his.paths import CLUSTER_OUTPUT, DATA_DIR
 # Precomputed FEFF spectra (input) live under data/; clustering output is mirrored
 # to cluster-output/.  Override either with --station / --approach.
 DEFAULT_STATION = DATA_DIR / "4cys-large/calculated-spectra"
-DEFAULT_APPROACH = CLUSTER_OUTPUT / "test-4cys-weighted/approach1"
+DEFAULT_APPROACH = CLUSTER_OUTPUT / "4cys-large/approach1"
 DEFAULT_LABELS = DEFAULT_APPROACH / "kmeans_labels_with_stats.csv"
 DEFAULT_EMBED = DEFAULT_APPROACH / "embeddings.csv"
 DEFAULT_MEDOIDS = DEFAULT_APPROACH / "medoids.csv"

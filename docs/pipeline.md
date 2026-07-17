@@ -34,10 +34,9 @@ uv run python -m zn_cys_his.clustering.orchestrate \
     --base-dir data/4cys-large \
     --approaches 1 2 3
 
-# Small test dataset (k-min/max adjusted for 22 structures)
+# Small dataset (k-min/max adjusted for a ~30-structure set)
 uv run python -m zn_cys_his.clustering.orchestrate \
-    --base-dir data/test-4cys-weighted \
-    --xyz-subdir initial_xyz_files \
+    --base-dir data/1cys3his-large \
     --approaches 1 3 \
     --k-min 2 --k-max 8
 

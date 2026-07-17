@@ -24,14 +24,14 @@ Usage
 -----
   # After running approach 1:
   uv run python -m zn_cys_his.clustering.step04_approach2_zmatrix \\
-      --aligned-xyz-dir data/test-4cys-weighted/approach1/aligned_xyz \\
-      --out-dir data/test-4cys-weighted/approach2 \\
+      --aligned-xyz-dir cluster-output/1cys3his-large/approach1/aligned_xyz \\
+      --out-dir cluster-output/1cys3his-large/approach2 \\
       --k-min 2 --k-max 8
 
   # Standalone (re-computes R₀ from raw XYZ):
   uv run python -m zn_cys_his.clustering.step04_approach2_zmatrix \\
-      --xyz-dir data/test-4cys-weighted/initial_xyz_files \\
-      --out-dir data/test-4cys-weighted/approach2 \\
+      --xyz-dir data/1cys3his-large/xyz-files \\
+      --out-dir cluster-output/1cys3his-large/approach2 \\
       --k-min 2 --k-max 8
 """
 from __future__ import annotations

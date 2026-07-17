@@ -32,16 +32,16 @@ when absent, k is inferred from the number of unique cluster labels.
 Usage — single approach (approach-dir with k_sweep, labels, medoids)
 ---------------------------------------------------------------------
   uv run python -m zn_cys_his.clustering.step06_validate_clusters \\
-      --xyz-dir   data/test-4cys-weighted/initial_xyz_files \\
-      --approach-dir data/test-4cys-weighted/approach1 \\
-      --out-dir   data/test-4cys-weighted/approach1/validation
+      --xyz-dir   data/1cys3his-large/xyz-files \\
+      --approach-dir cluster-output/1cys3his-large/approach1 \\
+      --out-dir   cluster-output/1cys3his-large/validation/approach1
 
   # Approach 1 PCA→XYZ requires the aligned structures
   uv run python -m zn_cys_his.clustering.step06_validate_clusters \\
-      --xyz-dir   data/test-4cys-weighted/approach1/aligned_xyz \\
-      --approach-dir data/test-4cys-weighted/approach1 \\
+      --xyz-dir   cluster-output/1cys3his-large/approach1/aligned_xyz \\
+      --approach-dir cluster-output/1cys3his-large/approach1 \\
       --approach1 \\
-      --out-dir   data/test-4cys-weighted/approach1/validation
+      --out-dir   cluster-output/1cys3his-large/validation/approach1
 
 Usage — clustering dir (has embeddings/tsne/histograms, may lack k_sweep)
 --------------------------------------------------------------------------
@@ -52,8 +52,8 @@ Usage — clustering dir (has embeddings/tsne/histograms, may lack k_sweep)
 Usage — compare multiple approaches
 ------------------------------------
   uv run python -m zn_cys_his.clustering.step06_validate_clusters \\
-      --compare-dirs data/test-4cys-weighted/approach1 data/test-4cys-weighted/approach3 \\
-      --out-dir  data/test-4cys-weighted/comparison
+      --compare-dirs cluster-output/1cys3his-large/approach1 cluster-output/1cys3his-large/approach3 \\
+      --out-dir  cluster-output/1cys3his-large/validation/comparison
 """
 from __future__ import annotations
 

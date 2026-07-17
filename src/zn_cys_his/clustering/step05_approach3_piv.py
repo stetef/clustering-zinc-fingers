@@ -20,8 +20,8 @@ Outputs to --out-dir:
 Usage
 -----
   uv run python -m zn_cys_his.clustering.step05_approach3_piv \\
-      --xyz-dir data/test-4cys-weighted/initial_xyz_files \\
-      --out-dir data/test-4cys-weighted/approach3 \\
+      --xyz-dir data/1cys3his-large/xyz-files \\
+      --out-dir cluster-output/1cys3his-large/approach3 \\
       --k-min 2 --k-max 8
 """
 from __future__ import annotations

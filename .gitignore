@@ -49,7 +49,6 @@ Thumbs.db
 # ---------------------------------------------------------------------------
 data/*/*
 !data/*/xyz-files/
-!data/*/initial_xyz_files/
 !data/*/calculated-spectra/
 cluster-output/
 

@@ -43,7 +43,7 @@ DATASETS = {
         "pdb_dir": DATA_DIR / "3cys1his-large/pdb-files",
     },
     "4cys": {
-        "csv": CLUSTER_OUTPUT / "test-4cys-weighted/approach1/kmeans_labels_with_stats.csv",
+        "csv": CLUSTER_OUTPUT / "4cys-large/approach1/kmeans_labels_with_stats.csv",
         "pdb_dir": DATA_DIR / "4cys-large/pdb-files",
     },
     "2cys2his": {

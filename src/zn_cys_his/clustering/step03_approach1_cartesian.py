@@ -17,8 +17,8 @@ Outputs to --out-dir:
 Usage
 -----
   uv run python -m zn_cys_his.clustering.step03_approach1_cartesian \\
-      --xyz-dir  data/test-4cys-weighted/initial_xyz_files \\
-      --out-dir  data/test-4cys-weighted/approach1 \\
+      --xyz-dir  data/1cys3his-large/xyz-files \\
+      --out-dir  cluster-output/1cys3his-large/approach1 \\
       --k-min 2 --k-max 8
 """
 from __future__ import annotations

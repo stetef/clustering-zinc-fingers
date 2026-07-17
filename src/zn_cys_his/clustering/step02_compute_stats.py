@@ -26,11 +26,11 @@ Skips if output already exists unless --force.
 Usage
 -----
   uv run python -m zn_cys_his.clustering.step02_compute_stats \\
-      --xyz-dir  data/test-4cys-weighted/initial_xyz_files \\
+      --xyz-dir  data/1cys3his-large/xyz-files \\
       --pdb-dir  data/4cys-large/pdb-files
 
   uv run python -m zn_cys_his.clustering.step02_compute_stats \\
-      --xyz-dir  data/test-4cys-weighted/initial_xyz_files \\
+      --xyz-dir  data/1cys3his-large/xyz-files \\
       --pdb-dir  data/4cys-large/pdb-files \\
       --force
 """

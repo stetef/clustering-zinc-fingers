@@ -93,8 +93,8 @@ Console scripts (from `pyproject.toml`, each == `python -m <module>`):
 ## Version-control policy for `data/`
 
 Only the small, hard-to-regenerate **text inputs** are committed:
-`xyz-files/` + `initial_xyz_files/` (cleaned pocket XYZ, ~19 MB) and
-`calculated-spectra/` (FEFF `.dat`, ~11 MB). The large, freely re-downloadable
+`xyz-files/` (cleaned pocket XYZ) and `calculated-spectra/` (FEFF `.dat`,
+~11 MB). The large, freely re-downloadable
 `pdb-files/` (~2 GB) are **not** committed — the prep stage fetches them from
 RCSB via `zch-fetch-pdbs` (idempotent, once). Generated
 `analysis-and-visualization/` plots and the whole `cluster-output/` tree are
@@ -155,7 +155,7 @@ also excluded. See `.gitignore`.
 ---
 
 ### Round 4 — data version-control + PDB fetch
-- [x] `.gitignore`: version `xyz-files/`, `initial_xyz_files/`, `calculated-spectra/`; exclude `pdb-files/`, `analysis-and-visualization/`, `cluster-output/`.
+- [x] `.gitignore`: version `xyz-files/`, `calculated-spectra/`; exclude `pdb-files/`, `analysis-and-visualization/`, `cluster-output/`.
 - [x] `fetch_pdbs.py` + `zch-fetch-pdbs`: download any PDB missing for an XYZ id from RCSB.
 - [x] Wire fetch into the prep stage (idempotent; `--no-fetch` to skip; failures non-fatal).
 - [x] Remove stale `.secstruct_annotated` sentinels from input dirs.
