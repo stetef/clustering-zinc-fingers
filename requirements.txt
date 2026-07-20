@@ -1,0 +1,8 @@
+# Runtime dependencies for the Streamlit query app (zn-cys-his.streamlit.app).
+# Streamlit Community Cloud installs from this file. Keep in sync with the
+# query_app deps in pyproject.toml. Only what app.py + validation_tab.py import
+# at runtime — the clustering pipeline and build scripts are not run on Cloud.
+streamlit>=1.35   # st.plotly_chart selection events (on_select)
+pandas>=2.0
+numpy>=2.0
+plotly>=5.0
