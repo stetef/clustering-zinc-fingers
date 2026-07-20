@@ -77,6 +77,33 @@ def pdb_code(struct_id: str) -> str:
     return struct_id.split("_")[0].lower()
 
 
+# Path segments that mark the repo root; a stored xyz_path is truncated to start
+# at whichever appears, giving a repo-relative path that is stable across machines.
+_PATH_ANCHORS = ("cluster-output", "data")
+
+
+def repo_relative(p: object) -> object:
+    """Absolute pipeline xyz_path -> repo-root-relative POSIX path.
+
+    The pipeline writes absolute paths; store them relative to the repo root so the
+    app shows portable locations (e.g. cluster-output/…/foo.xyz) instead of a
+    machine-specific /Users/… prefix.
+    """
+    if not isinstance(p, str) or not p:
+        return p
+    path = Path(p)
+    if not path.is_absolute():
+        return path.as_posix()
+    parts = path.parts
+    for anchor in _PATH_ANCHORS:
+        if anchor in parts:
+            return Path(*parts[parts.index(anchor):]).as_posix()
+    try:
+        return path.relative_to(REPO).as_posix()
+    except ValueError:
+        return p
+
+
 def copy_and_load() -> pd.DataFrame:
     """Copy source CSVs into csv/ and return one unified DataFrame."""
     CSV_DIR.mkdir(exist_ok=True)
@@ -91,6 +118,8 @@ def copy_and_load() -> pd.DataFrame:
         df = pd.read_csv(dest)
         df.insert(0, "dataset", key)
         df.insert(1, "pdb_id", df["id"].map(pdb_code))
+        if "xyz_path" in df.columns:  # store portable, repo-relative locations
+            df["xyz_path"] = df["xyz_path"].map(repo_relative)
         frames.append(df)
     combined = pd.concat(frames, ignore_index=True, sort=False)
     print(f"loaded {len(combined)} rows across {len(frames)} datasets "
@@ -166,6 +195,8 @@ def main() -> None:
     combined = copy_and_load()
     meta = fetch_metadata(sorted(combined["pdb_id"].unique().tolist()))
     meta_df = pd.DataFrame(list(meta.values()))
+    if "citation_year" in meta_df.columns:  # nullable int -> INTEGER column (not REAL)
+        meta_df["citation_year"] = meta_df["citation_year"].astype("Int64")
 
     if DB_PATH.exists():
         DB_PATH.unlink()

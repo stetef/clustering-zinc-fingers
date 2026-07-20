@@ -23,22 +23,30 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-try:  # normal path: run against the installed package
-    from zn_cys_his.paths import DATA_DIR  # repo-root/data (for showing xyz_path relative)
-except ModuleNotFoundError:  # deployed without the package installed (e.g. Streamlit Cloud)
-    DATA_DIR = Path(__file__).resolve().parents[3] / "data"
+import validation_tab  # sibling module (streamlit adds the app dir to sys.path)
 
 DB_PATH = Path(__file__).resolve().parent / "structures.db"
 
+# Path segments that mark the repo root, for normalising any legacy absolute path.
+_PATH_ANCHORS = ("cluster-output", "data")
+
 
 def rel_xyz(p: object) -> object:
-    """Absolute stored xyz_path -> path relative to the data/ directory."""
-    if not isinstance(p, str):
+    """Show xyz_path as a repo-root-relative POSIX path.
+
+    Paths are stored repo-relative by build_db.py; this also normalises any legacy
+    absolute value (e.g. a DB built before that change) to the same form.
+    """
+    if not isinstance(p, str) or not p:
         return p
-    try:
-        return str(Path(p).relative_to(DATA_DIR))
-    except ValueError:
-        return p
+    path = Path(p)
+    if not path.is_absolute():
+        return path.as_posix()
+    parts = path.parts
+    for anchor in _PATH_ANCHORS:
+        if anchor in parts:
+            return Path(*parts[parts.index(anchor):]).as_posix()
+    return p
 
 # Columns that are numeric in the DB but are not "stats" to range-filter on.
 NON_STAT_REAL: set[str] = set()  # (all REAL columns here are stats)
@@ -138,7 +146,10 @@ def run_query(where: str, params: list) -> pd.DataFrame:
         LEFT JOIN pdb_metadata m ON s.pdb_id = m.pdb_id
         {('WHERE ' + where) if where else ''}
     """
-    return pd.read_sql(sql, con, params=params)
+    df = pd.read_sql(sql, con, params=params)
+    if "citation_year" in df.columns:  # INTEGER + NULLs comes back float; keep it int
+        df["citation_year"] = df["citation_year"].astype("Int64")
+    return df
 
 
 # ----------------------------------------------------------------------------- sidebar
@@ -234,7 +245,8 @@ with st.expander("Show generated SQL"):
     st.code("WHERE " + (" AND ".join(where_parts) if where_parts else "(none)")
             + "\n-- params: " + repr(params), language="sql")
 
-tab_files, tab_pdbs = st.tabs(["📄 Files", "🔗 Unique PDBs"])
+tab_files, tab_pdbs, tab_validation = st.tabs(
+    ["📄 Files", "🔗 Unique PDBs", "📊 Validation"])
 
 with tab_files:
     files_view = df.copy()
@@ -291,3 +303,8 @@ with tab_pdbs:
         "Download unique PDBs CSV", view.to_csv(index=False).encode(),
         file_name="query_unique_pdbs.csv", mime="text/csv",
     )
+
+with tab_validation:
+    # Native rebuild of the pipeline's cluster-distribution HTML reports; reads its
+    # own CSVs under validation_data/ and is independent of the sidebar filters.
+    validation_tab.render()

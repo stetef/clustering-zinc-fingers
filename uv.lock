@@ -1588,7 +1588,7 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "requests", specifier = ">=2.32" },
     { name = "scikit-learn", specifier = ">=1.6" },
-    { name = "streamlit", specifier = ">=1.30" },
+    { name = "streamlit", specifier = ">=1.35" },
     { name = "tqdm", specifier = ">=4.67" },
 ]
 provides-extras = ["dev"]

@@ -24,8 +24,9 @@ dependencies = [
     "plotly>=5.0",
     "tqdm>=4.67",
     "pandas>=2.0",
-    # query_app (Streamlit + RCSB metadata fetch)
-    "streamlit>=1.30",
+    # query_app (Streamlit + RCSB metadata fetch); >=1.35 for st.plotly_chart
+    # selection events (on_select), used by the Validation tab.
+    "streamlit>=1.35",
     "requests>=2.32",
 ]
 
@@ -47,13 +48,16 @@ zch-sample-spectra = "zn_cys_his.spectra.sample:main"
 zch-plot-spectra = "zn_cys_his.spectra.plot:main"
 # Rebuild the structure-query app's SQLite database.
 zch-build-db = "zn_cys_his.query_app.build_db:main"
+# Copy the Validation-tab CSVs into the app's tracked validation_data/ folder.
+zch-build-validation-data = "zn_cys_his.query_app.build_validation_data:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 # Ship the query app's prebuilt DB / cache / CSVs as package data.
 [tool.setuptools.package-data]
-"zn_cys_his.query_app" = ["structures.db", "metadata_cache.json", "csv/*.csv"]
+"zn_cys_his.query_app" = ["structures.db", "metadata_cache.json", "csv/*.csv",
+                          "validation_data/*/*/*.csv"]
 
 [tool.black]
 line-length = 120
