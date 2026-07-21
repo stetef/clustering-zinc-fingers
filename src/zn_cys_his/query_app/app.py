@@ -23,6 +23,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
+import spectra_tab  # sibling module (streamlit adds the app dir to sys.path)
 import validation_tab  # sibling module (streamlit adds the app dir to sys.path)
 
 DB_PATH = Path(__file__).resolve().parent / "structures.db"
@@ -245,8 +246,8 @@ with st.expander("Show generated SQL"):
     st.code("WHERE " + (" AND ".join(where_parts) if where_parts else "(none)")
             + "\n-- params: " + repr(params), language="sql")
 
-tab_files, tab_pdbs, tab_validation = st.tabs(
-    ["📄 Files", "🔗 Unique PDBs", "📊 Validation"])
+tab_files, tab_pdbs, tab_validation, tab_spectra = st.tabs(
+    ["📄 Files", "🔗 Unique PDBs", "📊 Validation", "📈 Spectra"])
 
 with tab_files:
     files_view = df.copy()
@@ -308,3 +309,9 @@ with tab_validation:
     # Native rebuild of the pipeline's cluster-distribution HTML reports; reads its
     # own CSVs under validation_data/ and is independent of the sidebar filters.
     validation_tab.render()
+
+with tab_spectra:
+    # FEFF-calculated μ(E) / kᵂ·χ(k) / χ(R) spectra, colored by cluster; reads its
+    # own spectra_data/ index + the tracked data/*/calculated-spectra .dat files,
+    # independent of the sidebar filters.
+    spectra_tab.render()
