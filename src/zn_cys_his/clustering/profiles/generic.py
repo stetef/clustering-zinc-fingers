@@ -58,6 +58,7 @@ def read_raw_xyz(path: Path, include_h: bool = False) -> Optional[dict]:
     elements: list[str] = []
     coords: list[np.ndarray] = []
     ordinal = 0
+    tagged = False
     for line in lines[2:]:
         halves = line.split("#", 1)
         parts = halves[0].split()
@@ -74,6 +75,7 @@ def read_raw_xyz(path: Path, include_h: bool = False) -> Optional[dict]:
         name = _tag(comment, "ATOM=")
         if name:
             name = name.upper()
+            tagged = True
         else:
             name = f"{elem.upper()}{ordinal}"
         ordinal += 1
@@ -83,8 +85,8 @@ def read_raw_xyz(path: Path, include_h: bool = False) -> Optional[dict]:
 
     if not coords:
         return None
-    return {"id": path.stem, "names": names,
-            "elements": elements, "coords": np.array(coords)}
+    return {"id": path.stem, "names": names, "elements": elements,
+            "coords": np.array(coords), "tagged": tagged}
 
 
 # ---------------------------------------------------------------------------
@@ -149,7 +151,11 @@ def canonicalize(
     center_index = None
     if center_name is not None:
         cn = center_name.upper()
-        matches = [i for i, t in enumerate(template) if t.split("#")[0] == cn]
+        # Match the atom-name token, tolerating a "<RES>_" prefix (from PDB
+        # back-derivation) and a "#k" de-duplication suffix.
+        def _tok(t: str) -> str:
+            return t.split("#")[0].split("_")[-1]
+        matches = [i for i, t in enumerate(template) if _tok(t) == cn]
         if matches:
             center_index = matches[0]
 
@@ -166,13 +172,46 @@ def canonicalize(
 # Dataset gather (matches the gather_structures report contract)
 # ---------------------------------------------------------------------------
 
-def make_gather(center_name: Optional[str] = None,
-                include_h: bool = False) -> Callable[[Path, str], tuple]:
+def _enrich_from_pdb(raws: list[dict], pdb_dir: Optional[Path], fetch: bool) -> int:
+    """Back-derive names for untagged raws whose stem starts with a PDB id.
+
+    Mutates ``raws`` in place; returns the number of structures enriched.  A raw
+    that already carried ATOM= tags is left untouched.
+    """
+    from .pdb_tags import back_derive, parse_pdb_atoms, pdb_id_from_stem, resolve_pdb
+
+    cache: dict[str, list] = {}
+    enriched = 0
+    for i, raw in enumerate(raws):
+        if raw.get("tagged"):
+            continue
+        pid = pdb_id_from_stem(raw["id"])
+        if not pid:
+            continue
+        if pid not in cache:
+            p = resolve_pdb(pid, pdb_dir, fetch)
+            cache[pid] = parse_pdb_atoms(p) if p else []
+        got = back_derive(raw, cache[pid])
+        if got is not None:
+            raws[i] = got
+            enriched += 1
+    return enriched
+
+
+def make_gather(center_name: Optional[str] = None, include_h: bool = False,
+                pdb_dir: Optional[Path] = None,
+                fetch_pdbs: bool = False) -> Callable[[Path, str], tuple]:
     def _gather(xyz_dir: Path, glob_pat: str) -> tuple:
         files = sorted(xyz_dir.glob(glob_pat))
         n_listed = len(files)
         raws = [r for f in files if (r := read_raw_xyz(f, include_h)) is not None]
         n_parse_fail = n_listed - len(raws)
+        # Recover atom names for tag-less files from their source PDB when possible.
+        n_enriched = 0
+        if any(not r.get("tagged") for r in raws):
+            n_enriched = _enrich_from_pdb(raws, pdb_dir, fetch_pdbs)
+            if n_enriched:
+                print(f"  back-derived atom tags from PDB for {n_enriched} structure(s)")
         template, elem_by_name = build_template(raws)
         structures = [canonicalize(r, template, elem_by_name, center_name)
                       for r in raws]
@@ -237,10 +276,15 @@ def write_generic_xyz(structure: GenericStructure, path: Path) -> None:
 # The profile
 # ---------------------------------------------------------------------------
 
-PROFILE = StructureProfile(
-    name="generic",
-    gather=make_gather(center_name=None),
-    build_matcher=make_build_matcher(center_name=None),
-    write_xyz=write_generic_xyz,
-    has_metrics=False,
-)
+def make_profile(pdb_dir: Optional[Path] = None,
+                 fetch_pdbs: bool = False) -> StructureProfile:
+    return StructureProfile(
+        name="generic",
+        gather=make_gather(center_name=None, pdb_dir=pdb_dir, fetch_pdbs=fetch_pdbs),
+        build_matcher=make_build_matcher(center_name=None),
+        write_xyz=write_generic_xyz,
+        has_metrics=False,
+    )
+
+
+PROFILE = make_profile()

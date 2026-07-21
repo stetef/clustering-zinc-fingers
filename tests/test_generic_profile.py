@@ -106,5 +106,56 @@ def test_generic_run_labels_every_structure(tmp_path: Path) -> None:
         rows = list(csv.DictReader(fh))
     assert len(rows) == 24
     assert all(r["cluster"] != "" for r in rows)
-    # No stats/metric artifacts for the metric-free generic profile.
-    assert not (tmp_path / "out" / "kmeans_labels_with_stats.csv").exists()
+
+    # Metric-free profiles still emit a minimal labels-with-stats CSV (the app needs
+    # it) — with cluster color + pdb_id, but none of the Zn numeric-metric columns.
+    lw = tmp_path / "out" / "kmeans_labels_with_stats.csv"
+    assert lw.exists()
+    with lw.open() as fh:
+        cols = next(csv.reader(fh))
+    assert cols == ["id", "cluster", "cluster_color", "pdb_id", "family"]
+
+
+def test_pdb_back_derive_assigns_names(tmp_path: Path) -> None:
+    """A tag-less structure recovers <RES>_<NAME> from a coordinate-matched PDB."""
+    from zn_cys_his.clustering.profiles.pdb_tags import (
+        back_derive, parse_pdb_atoms, pdb_id_from_stem,
+    )
+    assert pdb_id_from_stem("1a3n_hem1") == "1a3n"
+    assert pdb_id_from_stem("famA_003") is None  # not a PDB id
+
+    pdb = tmp_path / "1abc.pdb"
+    pdb.write_text(
+        "HETATM    1 FE   HEM A   1      10.000  10.000  10.000  1.00  0.00          FE\n"
+        "HETATM    2 NA   HEM A   1      12.000  10.000  10.000  1.00  0.00           N\n"
+        "ATOM      3 NE2  HIS A   2      10.000  10.000  12.000  1.00  0.00           N\n"
+    )
+    atoms = parse_pdb_atoms(pdb)
+    assert {a["name"] for a in atoms} == {"FE", "NA", "NE2"}
+
+    raw = {"id": "1abc_h", "elements": ["Fe", "N", "N"],
+           "names": ["FE0", "N1", "N2"], "tagged": False,
+           "coords": np.array([[10, 10, 10], [12, 10, 10], [10, 10, 12]], float)}
+    got = back_derive(raw, atoms)
+    assert got is not None
+    assert got["names"] == ["HEM_FE", "HEM_NA", "HIS_NE2"]
+
+
+def test_minimal_report_written(tmp_path: Path) -> None:
+    """build_minimal_report emits a self-contained HTML embedding available PNGs."""
+    from zn_cys_his.clustering.step06_validate_clusters import build_minimal_report
+
+    # 1x1 PNG so _png_to_b64 has something to embed.
+    png = (b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+           b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00"
+           b"\x01\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82")
+    clu = tmp_path / "clu"; clu.mkdir()
+    out = tmp_path / "val"; out.mkdir()
+    (clu / "tsne_kmeans.png").write_bytes(png)
+    (out / "k_sweep_plot.png").write_bytes(png)
+    (out / "rmsd_table_k2.csv").write_text("cluster_id,n\n0,12\n1,12\n")
+
+    build_minimal_report(clu, out, title="Heme test", best_k=2)
+    html = (out / "report_cluster_distribution_offline.html").read_text()
+    assert "Heme test" in html and "data:image/png;base64," in html
+    assert "Per-cluster RMSD" in html  # table embedded

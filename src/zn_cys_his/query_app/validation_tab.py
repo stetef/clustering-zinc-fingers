@@ -390,16 +390,28 @@ def render() -> None:
         st.dataframe(stats.style.format({c: "{:.3g}" for c in num_cols}),
                      hide_index=True, use_container_width=True)
 
+    # Numeric metrics present in this dataset (empty for metric-free systems, e.g. heme).
+    metric_opts = [(c, l) for c, l in NUMERIC_METRICS if c in labels_df.columns]
+    has_family = ("family" in labels_df.columns
+                  and labels_df["family"].astype(str).str.strip().any())
+
     dist_tab, overlay_tab = st.tabs(["Per-cluster distributions", "Metric overlays"])
     with dist_tab:
-        st.markdown(_swatch_legend(focus, focus_color), unsafe_allow_html=True)
-        if focus == "All":
-            st.caption("Whole-dataset distributions. Focus a cluster to overlay its share.")
-        st.plotly_chart(distribution_figure(labels_df, focus, focus_color),
-                        use_container_width=True)
+        if not metric_opts and not has_family:
+            st.info("This dataset has no per-structure metrics — the t-SNE embedding above "
+                    "is the cluster view. (Metric distributions apply to the Zn(Cys/His) "
+                    "systems, which ship geometry/quality stats.)")
+        else:
+            st.markdown(_swatch_legend(focus, focus_color), unsafe_allow_html=True)
+            if focus == "All":
+                st.caption("Whole-dataset distributions. Focus a cluster to overlay its share.")
+            st.plotly_chart(distribution_figure(labels_df, focus, focus_color),
+                            use_container_width=True)
     with overlay_tab:
-        metric_opts = [(c, l) for c, l in NUMERIC_METRICS if c in labels_df.columns]
-        sel = st.selectbox("Metric", metric_opts, format_func=lambda t: t[1],
-                           key=f"val_overlay_{dataset}_{approach}")
-        st.plotly_chart(overlay_figure(labels_df, sel[0], color_map),
-                        use_container_width=True)
+        if not metric_opts:
+            st.info("No numeric metrics to compare for this dataset.")
+        else:
+            sel = st.selectbox("Metric", metric_opts, format_func=lambda t: t[1],
+                               key=f"val_overlay_{dataset}_{approach}")
+            st.plotly_chart(overlay_figure(labels_df, sel[0], color_map),
+                            use_container_width=True)

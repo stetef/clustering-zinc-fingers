@@ -165,10 +165,14 @@ def _build_matcher(structures: list) -> Optional[Matcher]:
     return Matcher(perms, structures[0].center_index)
 
 
-PROFILE = StructureProfile(
-    name="heme",
-    gather=make_gather(center_name=_CENTER),
-    build_matcher=_build_matcher,
-    write_xyz=write_generic_xyz,
-    has_metrics=False,
-)
+def make_profile(pdb_dir=None, fetch_pdbs: bool = False) -> StructureProfile:
+    return StructureProfile(
+        name="heme",
+        gather=make_gather(center_name=_CENTER, pdb_dir=pdb_dir, fetch_pdbs=fetch_pdbs),
+        build_matcher=_build_matcher,
+        write_xyz=write_generic_xyz,
+        has_metrics=False,
+    )
+
+
+PROFILE = make_profile()

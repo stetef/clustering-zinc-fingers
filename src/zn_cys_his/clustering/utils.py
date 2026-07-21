@@ -1490,6 +1490,33 @@ def _plot_overlay_metrics(
     print(f"  Overlay plots → {out_dir}")
 
 
+def write_minimal_labels_with_stats(
+    out_dir: Path,
+    id_list: list[str],
+    labels: np.ndarray,
+    family_by_id: Optional[dict[str, str]] = None,
+) -> None:
+    """Write a metric-free kmeans_labels_with_stats.csv for profiles without stats.
+
+    Columns: id, cluster, cluster_color, pdb_id, family.  This is the minimum the
+    Streamlit validation tab needs (t-SNE scatter + optional family bars); the
+    numeric-metric panels there filter to whatever columns exist, so their absence
+    is handled gracefully.  cluster_color matches the tab20 scheme used elsewhere.
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    unique = sorted(set(int(l) for l in labels))
+    color = {c: _tab20_hex(i) for i, c in enumerate(unique)}
+    family_by_id = family_by_id or {}
+    path = out_dir / "kmeans_labels_with_stats.csv"
+    with path.open("w", newline="", encoding="utf-8") as fh:
+        w = csv.writer(fh)
+        w.writerow(["id", "cluster", "cluster_color", "pdb_id", "family"])
+        for sid, lbl in zip(id_list, labels):
+            c = int(lbl)
+            w.writerow([sid, c, color[c], sid[:4], family_by_id.get(sid, "")])
+    print(f"  Minimal labels+stats → {path}")
+
+
 def build_cluster_distribution_plots(
     out_dir: Path,
     id_list: list[str],

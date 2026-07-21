@@ -38,6 +38,7 @@ from zn_cys_his.clustering.utils import (
     Structure, weighted_kabsch, class_preserving_perms, _heavy_perm,
     _zn_distance_weights, sweep_k, save_outputs,
     build_cluster_distribution_plots, print_gather_report, structural_rmsd,
+    write_minimal_labels_with_stats,
 )
 from zn_cys_his.clustering.profiles import get_profile
 
@@ -259,9 +260,16 @@ def run(
     save_outputs(out_dir, [s.id for s in aligned], table, best)
 
     # Distribution plots only where per-structure metrics exist (zn_cys_his).
+    # Metric-free profiles still emit a minimal labels-with-stats CSV so the
+    # Streamlit validation tab (t-SNE + family) works with zero app changes.
     if profile.has_metrics:
         build_cluster_distribution_plots(
             out_dir, [s.id for s in aligned], best["labels"], stats_csv
+        )
+    else:
+        family_by_id = {s.id: getattr(s, "family", "") for s in aligned}
+        write_minimal_labels_with_stats(
+            out_dir, [s.id for s in aligned], best["labels"], family_by_id
         )
 
     # Save R₀ identity
@@ -306,6 +314,13 @@ def main() -> int:
                         help="Structure chemistry (default: zn_cys_his). 'generic'/'heme' "
                              "treat each structure as a rigid, template-aligned atom cloud "
                              "and skip Cys/His-specific parsing and metrics.")
+    parser.add_argument("--pdb-dir", type=Path, default=None,
+                        help="(generic/heme) Directory of <pdbid>.pdb used to back-derive "
+                             "atom names for tag-less XYZ files whose stem starts with a "
+                             "4-char RCSB id. Downloaded here when --fetch-pdbs is set.")
+    parser.add_argument("--fetch-pdbs", action="store_true",
+                        help="(generic/heme) Download missing source PDBs from RCSB to "
+                             "back-derive atom tags when XYZ files carry none.")
     args = parser.parse_args()
 
     xyz_dir = args.xyz_dir.expanduser().resolve()
@@ -316,8 +331,9 @@ def main() -> int:
     _w_map = {"equal": EQUAL_WEIGHTS, "shell": SHELL_WEIGHTS, "distance": DISTANCE_WEIGHTS}
     stats_csv = args.stats_csv.expanduser().resolve() if args.stats_csv else None
     k_values = list(range(args.k_min, args.k_max + 1, args.k_step))
+    pdb_dir = args.pdb_dir.expanduser().resolve() if args.pdb_dir else None
     run(xyz_dir, out_dir, k_values,
-        profile=get_profile(args.profile),
+        profile=get_profile(args.profile, pdb_dir=pdb_dir, fetch_pdbs=args.fetch_pdbs),
         w_type=_w_map[args.weight_scheme],
         allow_reflection=not args.no_reflection,
         convergence_tol=args.convergence_tol,

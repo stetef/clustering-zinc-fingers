@@ -169,7 +169,8 @@ def step_compute_stats(
 def step_approach1(out_root: Path, xyz_dir: Path, k_min: int, k_max: int, k_step: int,
                    force: bool, stats_csv: Path | None = None,
                    weight_scheme: str = "distance", glob_pat: str = "*.xyz",
-                   profile: str = "zn_cys_his") -> Path:
+                   profile: str = "zn_cys_his", pdb_dir: Path | None = None,
+                   fetch_pdbs: bool = False) -> Path:
     out = out_root / "approach1"
     cmd = [_PYTHON, "-m", "zn_cys_his.clustering.step03_approach1_cartesian",
            "--xyz-dir", xyz_dir,
@@ -180,6 +181,10 @@ def step_approach1(out_root: Path, xyz_dir: Path, k_min: int, k_max: int, k_step
            "--profile", profile]
     if stats_csv is not None:
         cmd += ["--stats-csv", stats_csv]
+    if profile != "zn_cys_his" and pdb_dir is not None:
+        cmd += ["--pdb-dir", pdb_dir]
+    if profile != "zn_cys_his" and fetch_pdbs:
+        cmd += ["--fetch-pdbs"]
     _run("step03 approach1_cartesian", cmd, skip_if=out / "labels.csv", force=force)
     return out
 
@@ -225,6 +230,9 @@ def step_validate(
     weight_scheme: str = "distance",
     sampled_val_dir: Path | None = None,
     glob_pat: str = "*.xyz",
+    profile: str = "zn_cys_his",
+    pdb_dir: Path | None = None,
+    fetch_pdbs: bool = False,
 ) -> Path:
     out = out_root / "validation" / approach_dir.name
     cmd = [_PYTHON, "-m", "zn_cys_his.clustering.step06_validate_clusters",
@@ -232,9 +240,14 @@ def step_validate(
            "--xyz-dir", xyz_dir,
            "--glob", glob_pat,
            "--out-dir", out,
-           "--weight-scheme", weight_scheme]
+           "--weight-scheme", weight_scheme,
+           "--profile", profile]
     if is_approach1:
         cmd.append("--approach1")
+    if profile != "zn_cys_his" and pdb_dir is not None:
+        cmd += ["--pdb-dir", pdb_dir]
+    if profile != "zn_cys_his" and fetch_pdbs:
+        cmd += ["--fetch-pdbs"]
     if sampled_val_dir is not None and sampled_val_dir.is_dir():
         cmd += ["--sampled-val-dir", sampled_val_dir]
     _run(
@@ -313,6 +326,9 @@ def main() -> int:
                         help="Structure chemistry (default: zn_cys_his). 'generic'/'heme' "
                              "cluster arbitrary rigid structures: the prep stage "
                              "(secstruct + stats) is skipped and only approach 1 runs.")
+    parser.add_argument("--fetch-pdbs", action="store_true",
+                        help="(generic/heme) Download source PDBs from RCSB to back-derive "
+                             "atom names for tag-less XYZ files (uses --pdb-dir as the cache).")
     args = parser.parse_args()
 
     if args.stage and args.from_stage:
@@ -389,7 +405,8 @@ def main() -> int:
         if 1 in approaches:
             step_approach1(out_root, xyz_dir, k_min, k_max, k_step, args.force,
                            stats_csv=stats_csv, weight_scheme=weight_scheme,
-                           glob_pat=active_glob, profile=profile)
+                           glob_pat=active_glob, profile=profile,
+                           pdb_dir=pdb_dir, fetch_pdbs=args.fetch_pdbs)
         if 2 in approaches:
             aligned_dir = out_root / "approach1" / "aligned_xyz"
             if aligned_dir.is_dir():
@@ -402,12 +419,9 @@ def main() -> int:
                            stats_csv=stats_csv, weight_scheme=weight_scheme, glob_pat=active_glob)
 
     # ----- validate: every approach output present, + comparison ----------
-    # step06 (RMSD metrics/plots) is still Cys/His-specific; skip for generic/heme
-    # until it is made profile-aware.  Clustering outputs (labels/embeddings) are
-    # already written by the cluster stage.
-    if "validate" in run and profile != "zn_cys_his":
-        print(f"  skip  validate stage (profile={profile}: step06 not yet profile-aware)")
-    if "validate" in run and profile == "zn_cys_his":
+    # step06 is profile-aware: generic/heme get RMSD metrics + t-SNE + HTML report,
+    # skipping the Cys/His-only renders (atom cloud, PCA→XYZ, metric histograms).
+    if "validate" in run:
         approach_dirs = [out_root / f"approach{n}" for n in approaches
                          if (out_root / f"approach{n}" / "labels.csv").is_file()]
         if not approach_dirs:
@@ -420,7 +434,8 @@ def main() -> int:
             # Only pass sampled_val_dir for approach 1 (lives under validation/approach1/).
             svd = sampled_val_dir if (is_a1 and sampled_val_dir is not None) else None
             step_validate(out_root, app_dir, val_xyz, is_approach1=is_a1, force=args.force,
-                          weight_scheme=weight_scheme, sampled_val_dir=svd, glob_pat=val_glob)
+                          weight_scheme=weight_scheme, sampled_val_dir=svd, glob_pat=val_glob,
+                          profile=profile, pdb_dir=pdb_dir, fetch_pdbs=args.fetch_pdbs)
         if len(approach_dirs) > 1:
             step_compare(out_root, approach_dirs, args.force)
 

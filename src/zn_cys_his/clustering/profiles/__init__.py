@@ -16,19 +16,23 @@ from .base import GenericStructure, Matcher, StructureProfile
 PROFILE_NAMES = ("zn_cys_his", "generic", "heme")
 
 
-def get_profile(name: str) -> StructureProfile:
-    """Return the profile registered under ``name`` (imported lazily)."""
+def get_profile(name: str, pdb_dir=None, fetch_pdbs: bool = False) -> StructureProfile:
+    """Return the profile registered under ``name`` (imported lazily).
+
+    ``pdb_dir`` / ``fetch_pdbs`` apply only to the generic/heme profiles: they let
+    the tag-less-XYZ parser recover atom names from source PDBs (see
+    :mod:`.pdb_tags`); they are ignored by ``zn_cys_his``.
+    """
     if name == "zn_cys_his":
         from .zn_cys_his import PROFILE
-    elif name == "generic":
-        from .generic import PROFILE
-    elif name == "heme":
-        from .heme import PROFILE
-    else:
-        raise ValueError(
-            f"unknown profile {name!r}; choose from {', '.join(PROFILE_NAMES)}"
-        )
-    return PROFILE
+        return PROFILE
+    if name == "generic":
+        from .generic import make_profile
+        return make_profile(pdb_dir=pdb_dir, fetch_pdbs=fetch_pdbs)
+    if name == "heme":
+        from .heme import make_profile
+        return make_profile(pdb_dir=pdb_dir, fetch_pdbs=fetch_pdbs)
+    raise ValueError(f"unknown profile {name!r}; choose from {', '.join(PROFILE_NAMES)}")
 
 
 __all__ = ["get_profile", "PROFILE_NAMES", "StructureProfile",

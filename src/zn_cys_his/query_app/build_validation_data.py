@@ -36,11 +36,37 @@ OUT_DIR = HERE / "validation_data"
 
 # App dataset key -> its cluster-output directory (same keys the query app's
 # `dataset` column uses; the "-large" suffix is the on-disk pipeline dir).
+# Explicit entries keep the original Zn keys stable; any *other* cluster-output
+# directory that holds a completed clustering (approach*/embeddings.csv +
+# kmeans_labels_with_stats.csv) is auto-discovered too, so new systems (heme,
+# generic) show up in the app without editing this file.
 DATASET_DIRS = {
     "3cys1his": CLUSTER_OUTPUT / "3cys1his-large",
     "4cys": CLUSTER_OUTPUT / "4cys-large",
     "2cys2his": CLUSTER_OUTPUT / "2cys2his-large",
 }
+
+
+def _discover_datasets() -> dict[str, Path]:
+    """Explicit Zn keys + any other completed clustering dir under cluster-output.
+
+    The app key is the directory name with a trailing '-large' stripped.
+    """
+    found = dict(DATASET_DIRS)
+    known = {p.resolve() for p in DATASET_DIRS.values()}
+    if CLUSTER_OUTPUT.is_dir():
+        for ds_dir in sorted(p for p in CLUSTER_OUTPUT.iterdir() if p.is_dir()):
+            if ds_dir.resolve() in known:
+                continue
+            has_output = any(
+                (ap / "embeddings.csv").is_file()
+                and (ap / "kmeans_labels_with_stats.csv").is_file()
+                for ap in ds_dir.glob("approach*")
+            )
+            if has_output:
+                key = ds_dir.name[:-6] if ds_dir.name.endswith("-large") else ds_dir.name
+                found[key] = ds_dir
+    return found
 
 # CSVs to copy for each approach. embeddings + labels are required (an approach
 # missing either is skipped); the summary is optional.
@@ -61,7 +87,7 @@ def main() -> None:
         shutil.rmtree(OUT_DIR)  # rebuild from scratch so stale approaches don't linger
 
     copied = 0
-    for ds_key, ds_dir in DATASET_DIRS.items():
+    for ds_key, ds_dir in _discover_datasets().items():
         if not ds_dir.is_dir():
             print(f"WARN {ds_key}: {ds_dir} not found, skipping")
             continue

@@ -583,6 +583,70 @@ window.addEventListener("DOMContentLoaded", () => {
 """
 
 
+def build_minimal_report(
+    clustering_dir: Path,
+    out_dir: Path,
+    title: str = "",
+    best_k: int | None = None,
+) -> None:
+    """Self-contained HTML report for metric-free profiles (generic/heme).
+
+    Embeds whatever PNGs the run produced (t-SNE by cluster, k-sweep, PCA scree,
+    cluster sizes, intra/inter RMSD) plus the per-cluster RMSD table, as base64 —
+    no external assets, no metric-distribution dependency.  Written as
+    ``report_cluster_distribution_offline.html`` so it drops into the same slot
+    the Cys/His report uses.
+    """
+    panels = [
+        (clustering_dir / "tsne_kmeans.png", "t-SNE embedding, colored by cluster"),
+        (out_dir / f"cluster_sizes_k{best_k}.png", "Cluster sizes"),
+        (out_dir / f"k_sweep_plot.png", "k sweep (intra/inter RMSD, CH score)"),
+        (out_dir / f"pca_scree_k{best_k}.png", "PCA scree"),
+        (out_dir / f"rmsd_scatter_k{best_k}.png", "Intra vs inter-cluster RMSD"),
+    ]
+    figs = [(p, cap) for p, cap in panels if p.is_file()]
+    if not figs:
+        print("Minimal HTML report skipped (no plots found)")
+        return
+
+    rmsd_table = out_dir / f"rmsd_table_k{best_k}.csv"
+    table_html = ""
+    if rmsd_table.is_file():
+        with rmsd_table.open(newline="", encoding="utf-8") as fh:
+            rows = list(csv.reader(fh))
+        if rows:
+            head = "".join(f"<th>{c}</th>" for c in rows[0])
+            body = "".join("<tr>" + "".join(f"<td>{c}</td>" for c in r) + "</tr>"
+                           for r in rows[1:])
+            table_html = (f"<h2>Per-cluster RMSD</h2><table><thead><tr>{head}"
+                          f"</tr></thead><tbody>{body}</tbody></table>")
+
+    report_title = (title or f"{clustering_dir.name} report")
+    if best_k is not None:
+        report_title += f"  (k={best_k})"
+    blocks = "".join(
+        f'<figure><figcaption>{cap}</figcaption>'
+        f'<img src="data:image/png;base64,{_png_to_b64(p)}"/></figure>'
+        for p, cap in figs
+    )
+    html = f"""<!doctype html><html><head><meta charset="utf-8">
+<title>{report_title}</title><style>
+ body{{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:2rem auto;max-width:1100px;color:#1a1a1a;background:#fff}}
+ h1{{font-size:1.5rem}} figure{{margin:1.5rem 0}} img{{max-width:100%;border:1px solid #eee;border-radius:6px}}
+ figcaption{{font-weight:600;margin-bottom:.4rem}}
+ table{{border-collapse:collapse;font-size:.9rem}} th,td{{border:1px solid #ddd;padding:4px 10px;text-align:right}}
+ th{{background:#f5f5f5}}
+</style></head><body>
+<h1>{report_title}</h1>
+<p>Structural clustering (approach 1) — metric-free profile. All panels are RMSD/PCA-based and embedded inline.</p>
+{table_html}
+{blocks}
+</body></html>"""
+    out_path = out_dir / "report_cluster_distribution_offline.html"
+    out_path.write_text(html, encoding="utf-8")
+    print(f"Minimal HTML report → {out_path}")
+
+
 def build_cluster_reports(
     clustering_dir: Path,
     out_dir: Path,
@@ -725,9 +789,14 @@ def _load_k_sweep(k_sweep_csv: Path) -> list[dict]:
     return rows
 
 
-def _load_structures(xyz_dir: Path, glob_pat: str = "*.xyz") -> tuple[list[Structure], dict[str, Structure]]:
-    from zn_cys_his.clustering.utils import gather_structures, print_gather_report
-    structs, report = gather_structures(xyz_dir, glob_pat, desc="loading XYZ")
+def _load_structures(xyz_dir: Path, glob_pat: str = "*.xyz",
+                     profile=None) -> tuple[list[Structure], dict[str, Structure]]:
+    from zn_cys_his.clustering.utils import print_gather_report
+    if profile is None:
+        from zn_cys_his.clustering.utils import gather_structures
+        structs, report = gather_structures(xyz_dir, glob_pat, desc="loading XYZ")
+    else:
+        structs, report = profile.gather(xyz_dir, glob_pat)
     print_gather_report(report)
     by_id = {s.id: s for s in structs}
     return structs, by_id
@@ -743,10 +812,12 @@ def compute_rmsd_metrics(
     medoids_csv: Path,
     w_type: dict | str = EQUAL_WEIGHTS,
     allow_reflection: bool = True,
+    matcher=None,
 ) -> list[dict]:
     """Per-cluster RMSD metrics.
 
     Returns list of dicts: cluster_id, n, medoid_id, mean_intra_rmsd, inter_rmsd.
+    ``matcher`` (generic/heme profiles) selects the atom-index symmetry search.
     """
     labels = _load_labels(labels_csv)
     medoid_ids = _load_medoids(medoids_csv)
@@ -766,7 +837,7 @@ def compute_rmsd_metrics(
         for sid in tqdm.tqdm(members, desc=f"cluster {cid} intra", leave=False):
             if sid == mid or sid not in by_id:
                 continue
-            r, _, _ = structural_rmsd(med_s, by_id[sid], w_type, allow_reflection)
+            r, _, _ = structural_rmsd(med_s, by_id[sid], w_type, allow_reflection, matcher)
             rmsds.append(r)
         mean_intra = float(np.mean(rmsds)) if rmsds else 0.0
         cluster_data.append({"cluster_id": cid, "n": len(members),
@@ -776,7 +847,7 @@ def compute_rmsd_metrics(
                    for d in cluster_data if d["medoid_id"] in by_id]
     inter_map: dict[int, list[float]] = {d["cluster_id"]: [] for d in cluster_data}
     for (ci, mi), (cj, mj) in combinations(med_structs, 2):
-        r, _, _ = structural_rmsd(mi, mj, w_type, allow_reflection)
+        r, _, _ = structural_rmsd(mi, mj, w_type, allow_reflection, matcher)
         inter_map[ci].append(r)
         inter_map[cj].append(r)
 
@@ -1672,6 +1743,14 @@ def main() -> int:
                         default="distance",
                         help="RMSD atom weighting: equal, shell (coord atom=1, other "
                              "arm atoms=0.5), or distance (1/avg_Zn_distance per atom; default).")
+    parser.add_argument("--profile", choices=["zn_cys_his", "generic", "heme"],
+                        default="zn_cys_his",
+                        help="Structure chemistry (default: zn_cys_his). generic/heme use "
+                             "template-aligned RMSD and skip Cys/His-only renders/metrics.")
+    parser.add_argument("--pdb-dir", type=Path, default=None,
+                        help="(generic/heme) PDB dir for back-deriving atom names on tag-less XYZ.")
+    parser.add_argument("--fetch-pdbs", action="store_true",
+                        help="(generic/heme) Download source PDBs from RCSB for atom-tag recovery.")
 
     # HTML report options
     parser.add_argument("--clustering-dir", type=Path, default=None,
@@ -1693,6 +1772,10 @@ def main() -> int:
 
     out_dir = args.out_dir.expanduser().resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    from zn_cys_his.clustering.profiles import get_profile
+    _pdb_dir = args.pdb_dir.expanduser().resolve() if args.pdb_dir else None
+    profile = get_profile(args.profile, pdb_dir=_pdb_dir, fetch_pdbs=args.fetch_pdbs)
 
     # ---- Cross-approach comparison mode ----
     if args.compare_dirs:
@@ -1751,13 +1834,17 @@ def main() -> int:
             raise SystemExit(f"--xyz-dir not found: {xyz_dir}")
 
         print("Loading structures for RMSD computation …")
-        structs, by_id = _load_structures(xyz_dir, args.glob)
+        structs, by_id = _load_structures(xyz_dir, args.glob, profile=profile)
+        matcher = profile.build_matcher(structs)
 
-        print("Rendering atom cloud …")
-        plot_atom_cloud_html(structs, out_dir, labels_csv=labels_csv,
-                             approach_name=approach_dir.name, best_k=best_k)
-        plot_atom_cloud_by_cluster_html(structs, out_dir, labels_csv=labels_csv,
-                                        approach_name=approach_dir.name, best_k=best_k)
+        # Atom-cloud renders read the Cys/His residue-arm layout; only meaningful
+        # for that profile.  Generic/heme skip them (RMSD metrics below still run).
+        if profile.has_metrics:
+            print("Rendering atom cloud …")
+            plot_atom_cloud_html(structs, out_dir, labels_csv=labels_csv,
+                                 approach_name=approach_dir.name, best_k=best_k)
+            plot_atom_cloud_by_cluster_html(structs, out_dir, labels_csv=labels_csv,
+                                            approach_name=approach_dir.name, best_k=best_k)
 
         print("Computing per-cluster RMSD metrics …")
         _w_map = {"equal": EQUAL_WEIGHTS, "shell": SHELL_WEIGHTS, "distance": DISTANCE_WEIGHTS}
@@ -1765,6 +1852,7 @@ def main() -> int:
             by_id, labels_csv, medoids_csv,
             w_type=_w_map[args.weight_scheme],
             allow_reflection=not args.no_reflection,
+            matcher=matcher,
         )
 
         rmsd_table_path = out_dir / f"rmsd_table_k{best_k}.csv"
@@ -1779,14 +1867,17 @@ def main() -> int:
                           title=f"Intra vs inter RMSD  (k={best_k})")
         print(f"RMSD scatter → {out_dir / f'rmsd_scatter_k{best_k}.png'}")
 
-        # Count permuted residues (meaningful only when xyz_dir contains aligned files)
-        print("Counting permuted residues …")
-        n_perm, n_total = count_permuted_residues(xyz_dir)
-        perm_line = f"permuted={n_perm}/{n_total} ({100*n_perm/n_total:.1f}% had residues reordered)" if n_total else "permuted=0/0"
-        print(f"  {perm_line}")
-        (out_dir / "permuted_residues.txt").write_text(perm_line + "\n", encoding="utf-8")
+        # Count permuted residues (Cys/His RESSEQ-based; skip for other profiles).
+        if profile.has_metrics:
+            print("Counting permuted residues …")
+            n_perm, n_total = count_permuted_residues(xyz_dir)
+            perm_line = f"permuted={n_perm}/{n_total} ({100*n_perm/n_total:.1f}% had residues reordered)" if n_total else "permuted=0/0"
+            print(f"  {perm_line}")
+            (out_dir / "permuted_residues.txt").write_text(perm_line + "\n", encoding="utf-8")
 
-        if args.approach1:
+        # PCA→XYZ reconstruction uses the Cys/His residue layout (structure_like);
+        # restrict to that profile.
+        if args.approach1 and profile.has_metrics:
             pca_xyz_dir = out_dir / "pca_to_xyz"
             print(f"PCA → XYZ reconstruction → {pca_xyz_dir}")
             explained = pca_to_xyz(xyz_dir, pca_xyz_dir)
@@ -1815,7 +1906,7 @@ def main() -> int:
             else:
                 print(f"(Skipping sampled overlay: --sampled-val-dir not found: {sampled_dir})")
 
-        if labels_stats_csv.is_file():
+        if labels_stats_csv.is_file() and profile.has_metrics:
             plot_tsne_qtetra_highlighted(
                 embeddings_csv, labels_stats_csv,
                 out_dir / "tsne_qtetra_lt0p8.png",
@@ -1826,13 +1917,21 @@ def main() -> int:
     # HTML distribution report
     if not args.no_report:
         clustering_dir = (args.clustering_dir or approach_dir).expanduser().resolve()
-        build_cluster_reports(
-            clustering_dir=clustering_dir,
-            out_dir=out_dir,
-            title=args.title or f"{approach_dir.name} Cluster Distribution Report",
-            vendor_cache=args.vendor_cache,
-            best_k=best_k,
-        )
+        if profile.has_metrics:
+            build_cluster_reports(
+                clustering_dir=clustering_dir,
+                out_dir=out_dir,
+                title=args.title or f"{approach_dir.name} Cluster Distribution Report",
+                vendor_cache=args.vendor_cache,
+                best_k=best_k,
+            )
+        else:
+            build_minimal_report(
+                clustering_dir=clustering_dir,
+                out_dir=out_dir,
+                title=args.title or f"{approach_dir.name} Cluster Report",
+                best_k=best_k,
+            )
 
     return 0
 
