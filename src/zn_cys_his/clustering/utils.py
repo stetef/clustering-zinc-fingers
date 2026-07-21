@@ -557,11 +557,55 @@ def _zn_distance_weights(A: Structure, B: Structure, perm: list[int]) -> np.ndar
     return 1.0 / ((d_A + d_B) / 2.0)
 
 
+def _structural_rmsd_matcher(
+    A,
+    B,
+    w_type: dict | str,
+    allow_reflection: bool,
+    matcher,
+) -> tuple[float, np.ndarray, tuple]:
+    """Matcher-based RMSD: minimize over the profile's atom-index permutations.
+
+    Used by the generic/heme profiles.  ``matcher.perms(A)`` supplies index
+    arrays over ``heavy()``; imputed/missing atoms (matcher.presence) are
+    down-weighted to zero so they never drive the fit.  Returns
+    (rmsd, best_atom_perm, (R, t)); best_atom_perm is an (M,) index array.
+    """
+    if A.composition() != B.composition():
+        return math.inf, np.arange(A.n_atoms()), (np.eye(3), np.zeros(3))
+
+    A_heavy = A.heavy()
+    B_heavy = B.heavy()
+    pres_A = matcher.presence(A)
+    pres_B = matcher.presence(B)
+    is_dist = (w_type == DISTANCE_WEIGHTS)
+    d_A = matcher.center_dists(A) if is_dist else None
+    d_B = matcher.center_dists(B) if is_dist else None
+    static_w = None if is_dist else matcher.static_w(A, w_type)
+
+    best_rmsd = math.inf
+    best_perm = np.arange(len(A_heavy))
+    best_Rt: tuple = (np.eye(3), np.zeros(3))
+    for perm in matcher.perms(A):
+        w = (1.0 / ((d_A + d_B[perm]) / 2.0)) if is_dist else static_w
+        w = w * pres_A * pres_B[perm]
+        if w.sum() <= 0:
+            continue
+        R, t, rmsd = weighted_kabsch(B_heavy[perm], A_heavy, w, allow_reflection)
+        if rmsd < best_rmsd:
+            best_rmsd = rmsd
+            best_perm = perm
+            best_Rt = (R, t)
+
+    return best_rmsd, best_perm, best_Rt
+
+
 def structural_rmsd(
     A: Structure,
     B: Structure,
     w_type: dict | str,
     allow_reflection: bool = True,
+    matcher=None,
 ) -> tuple[float, list[int], tuple]:
     """Matching-minimized RMSD over class-preserving residue permutations of B.
 
@@ -569,7 +613,13 @@ def structural_rmsd(
     His-NE2 are both "His" so they can match (their geometric difference shows
     up in the RMSD).  If A and B have different composition the RMSD is infinite.
     When w_type == DISTANCE_WEIGHTS, per-atom weights are recomputed per perm.
+
+    When ``matcher`` is provided (generic/heme profiles), permutations come from
+    the matcher's fixed atom-index symmetry group instead of residue matching.
     """
+    if matcher is not None:
+        return _structural_rmsd_matcher(A, B, w_type, allow_reflection, matcher)
+
     if A.composition() != B.composition():
         return math.inf, list(range(A.n_res())), (np.eye(3), np.zeros(3))
 
@@ -797,6 +847,7 @@ def evaluate_clustering(
     centroids_pca: np.ndarray,
     w_type: dict | str,
     allow_reflection: bool = True,
+    matcher=None,
 ) -> dict:
     """Intra/inter structural-RMSD evaluation.
 
@@ -818,7 +869,7 @@ def evaluate_clustering(
     for c in unique:
         idxs = np.where(labels == c)[0]
         med = structures[medoid_idx[c]]
-        rmsds = [structural_rmsd(med, structures[i], w_type, allow_reflection)[0]
+        rmsds = [structural_rmsd(med, structures[i], w_type, allow_reflection, matcher)[0]
                  for i in idxs if i != medoid_idx[c]]
         per_cluster_intra.append(float(np.mean(rmsds)) if rmsds else 0.0)
 
@@ -826,7 +877,7 @@ def evaluate_clustering(
 
     # Inter: mean structural_rmsd between every medoid pair
     meds = [structures[medoid_idx[c]] for c in unique]
-    inter_vals = [structural_rmsd(meds[i], meds[j], w_type, allow_reflection)[0]
+    inter_vals = [structural_rmsd(meds[i], meds[j], w_type, allow_reflection, matcher)[0]
                   for i, j in combinations(range(len(meds)), 2)]
     inter = float(np.mean(inter_vals)) if inter_vals else 0.0
     ratio = inter / intra if intra > 0 else 0.0
@@ -861,6 +912,7 @@ def sweep_k(
     allow_reflection: bool = True,
     clustering_mask: Optional[np.ndarray] = None,
     desc: str = "k sweep",
+    matcher=None,
 ) -> tuple[Optional[dict], list[dict]]:
     """Run cluster_pipeline + evaluate_clustering for each valid k.
 
@@ -881,7 +933,8 @@ def sweep_k(
         Xu = X[:, clustering_mask] if clustering_mask is not None else X
         X_pca = pca.transform((Xu - means) / stds)
 
-        ev = evaluate_clustering(structures, labels, X_pca, centroids, w_type, allow_reflection)
+        ev = evaluate_clustering(structures, labels, X_pca, centroids, w_type,
+                                 allow_reflection, matcher)
         ev.update({"labels": labels, "X_pca": X_pca, "pca": pca, "scale": scale, "evr_full": evr_full})
         results.append(ev)
 

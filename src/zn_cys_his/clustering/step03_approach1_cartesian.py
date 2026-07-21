@@ -35,11 +35,11 @@ import tqdm
 # Add script directory to path so utils is importable
 from zn_cys_his.clustering.utils import (
     EQUAL_WEIGHTS, SHELL_WEIGHTS, DISTANCE_WEIGHTS,
-    Structure, parse_structure, write_structure_xyz,
-    weighted_kabsch, class_preserving_perms, _heavy_perm, _zn_distance_weights,
-    cluster_pipeline, sweep_k, save_outputs, build_cluster_distribution_plots,
-    gather_structures, print_gather_report,
+    Structure, weighted_kabsch, class_preserving_perms, _heavy_perm,
+    _zn_distance_weights, sweep_k, save_outputs,
+    build_cluster_distribution_plots, print_gather_report, structural_rmsd,
 )
+from zn_cys_his.clustering.profiles import get_profile
 
 try:
     from sklearn.decomposition import PCA
@@ -55,6 +55,7 @@ def align_to_reference(
     R0: Structure,
     w_type: dict | str,
     allow_reflection: bool = True,
+    matcher=None,
 ) -> tuple[Structure, list[int], float]:
     """Solve rotation + residue matching jointly against R₀.
 
@@ -62,7 +63,16 @@ def align_to_reference(
     The winning permutation and rotation are applied; enantiomers are collapsed
     onto R₀'s handedness when allow_reflection=True.  Residue matching preserves
     class (Cys↔Cys, His↔His); B must share R₀'s composition.
+
+    When ``matcher`` is provided (generic/heme profiles), the search is over the
+    matcher's atom-index symmetry group; the winning permutation is applied via
+    ``reorder_atoms`` and the aligned structure is returned in R₀'s frame.
     """
+    if matcher is not None:
+        rmsd, perm, (R, t) = structural_rmsd(R0, B, w_type, allow_reflection, matcher)
+        aligned = B.reorder_atoms(perm).transformed(R, t)
+        return aligned, perm, rmsd
+
     if B.composition() != R0.composition():
         # Should not happen within a single-composition dataset; skip cleanly.
         return B, list(range(B.n_res())), math.inf
@@ -98,6 +108,7 @@ def establish_reference_and_label(
     max_ref_iter: int = 10,
     allow_reflection: bool = True,
     var_floor: float = 1e-3,
+    matcher=None,
 ) -> tuple[Structure, list[Structure]]:
     """Fixed-point R₀ = dataset medoid in PCA space.
 
@@ -116,9 +127,9 @@ def establish_reference_and_label(
         new_matchings: list[list[int]] = []
 
         for s in tqdm.tqdm(aligned, desc=f"  iter {iteration:02d} aligning", leave=False):
-            al, perm, _ = align_to_reference(s, R0, w_type, allow_reflection)
+            al, perm, _ = align_to_reference(s, R0, w_type, allow_reflection, matcher)
             new_aligned.append(al)
-            new_matchings.append(perm)
+            new_matchings.append(list(perm))
 
         # PCA on aligned 39-vectors
         X1 = np.array([s.heavy().ravel() for s in new_aligned])
@@ -185,22 +196,30 @@ def run(
     max_ref_iter: int = 10,
     stats_csv: Path | None = None,
     glob_pat: str = "*.xyz",
+    profile=None,
 ) -> dict | None:
     out_dir.mkdir(parents=True, exist_ok=True)
+    if profile is None:
+        profile = get_profile("zn_cys_his")
 
     # Logging to file only
     log = out_dir / "approach1_run.log"
     logging.basicConfig(filename=str(log), level=logging.INFO,
                         format="%(asctime)s %(message)s", filemode="w")
 
-    # Parse (reject -extended / .pc / .gzmat, drop off-modal atom counts and
-    # off-composition structures)
-    print(f"Gathering structures from {xyz_dir} …")
-    structures, report = gather_structures(xyz_dir, glob_pat, desc="parsing")
+    # Parse + canonicalise via the active profile.  zn_cys_his rejects
+    # -extended/.pc/.gzmat and off-modal/off-composition sites; generic/heme
+    # canonicalise every structure onto a shared atom template.
+    print(f"Gathering structures from {xyz_dir} (profile={profile.name}) …")
+    structures, report = profile.gather(xyz_dir, glob_pat)
     print_gather_report(report)
 
     if len(structures) < 4:
         raise SystemExit("Too few structures to cluster.")
+
+    # matcher = None for zn_cys_his (built-in residue matching); a fixed
+    # atom-index symmetry group for generic/heme.
+    matcher = profile.build_matcher(structures)
 
     k_values = [k for k in k_values if 2 <= k < len(structures)]
     if not k_values:
@@ -209,16 +228,26 @@ def run(
     # Fixed-point R₀ + alignment
     print("\nEstablishing R₀ …")
     R0, aligned = establish_reference_and_label(
-        structures, w_type, convergence_tol, max_ref_iter, allow_reflection
+        structures, w_type, convergence_tol, max_ref_iter, allow_reflection, matcher=matcher
     )
     print(f"R₀ = {R0.id}")
 
-    # Feature matrix: flattened 39-D aligned Cartesian coords
-    X = np.array([s.heavy().ravel() for s in aligned])
+    # Feature matrix: flattened aligned Cartesian coords.  For template profiles,
+    # neutralise imputed (missing) atoms to the per-atom dataset mean so they add
+    # ~zero variance and never define a cluster.
+    coords = np.array([s.heavy() for s in aligned])          # (N, M, 3)
+    if any(hasattr(s, "present") for s in aligned):
+        present = np.array([s.present for s in aligned])      # (N, M) bool
+        for m in range(coords.shape[1]):
+            have = present[:, m]
+            if have.any() and not have.all():
+                coords[~have, m, :] = coords[have, m, :].mean(0)
+    X = coords.reshape(len(aligned), -1)
     print(f"Feature matrix: {X.shape}")
 
     # k sweep
-    best, table = sweep_k(aligned, X, k_values, w_type, allow_reflection, desc="A1 k sweep")
+    best, table = sweep_k(aligned, X, k_values, w_type, allow_reflection,
+                          desc="A1 k sweep", matcher=matcher)
     if best is None:
         print("No valid clustering results.")
         return None
@@ -229,10 +258,11 @@ def run(
     # Save standard outputs (includes embeddings.csv + tsne_kmeans.png)
     save_outputs(out_dir, [s.id for s in aligned], table, best)
 
-    # Distribution plots (optional; requires --stats-csv)
-    build_cluster_distribution_plots(
-        out_dir, [s.id for s in aligned], best["labels"], stats_csv
-    )
+    # Distribution plots only where per-structure metrics exist (zn_cys_his).
+    if profile.has_metrics:
+        build_cluster_distribution_plots(
+            out_dir, [s.id for s in aligned], best["labels"], stats_csv
+        )
 
     # Save R₀ identity
     (out_dir / "r0_id.txt").write_text(R0.id + "\n", encoding="utf-8")
@@ -242,7 +272,7 @@ def run(
     aligned_dir.mkdir(exist_ok=True)
     print(f"Writing aligned XYZ to {aligned_dir} …")
     for s in tqdm.tqdm(aligned, desc="writing XYZ", leave=False):
-        write_structure_xyz(s, aligned_dir / f"{s.id}.xyz")
+        profile.write_xyz(s, aligned_dir / f"{s.id}.xyz")
 
     logging.info("Done. Best k=%d ratio=%.4f ch_score=%.4f", best["k"], best["ratio"], best["ch_score"])
     return best
@@ -271,6 +301,11 @@ def main() -> int:
                         default="distance",
                         help="RMSD atom weighting: equal, shell (coord atom=1, other "
                              "arm atoms=0.5), or distance (1/avg_Zn_distance per atom; default).")
+    parser.add_argument("--profile", choices=["zn_cys_his", "generic", "heme"],
+                        default="zn_cys_his",
+                        help="Structure chemistry (default: zn_cys_his). 'generic'/'heme' "
+                             "treat each structure as a rigid, template-aligned atom cloud "
+                             "and skip Cys/His-specific parsing and metrics.")
     args = parser.parse_args()
 
     xyz_dir = args.xyz_dir.expanduser().resolve()
@@ -282,6 +317,7 @@ def main() -> int:
     stats_csv = args.stats_csv.expanduser().resolve() if args.stats_csv else None
     k_values = list(range(args.k_min, args.k_max + 1, args.k_step))
     run(xyz_dir, out_dir, k_values,
+        profile=get_profile(args.profile),
         w_type=_w_map[args.weight_scheme],
         allow_reflection=not args.no_reflection,
         convergence_tol=args.convergence_tol,

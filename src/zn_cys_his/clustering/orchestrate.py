@@ -168,14 +168,16 @@ def step_compute_stats(
 
 def step_approach1(out_root: Path, xyz_dir: Path, k_min: int, k_max: int, k_step: int,
                    force: bool, stats_csv: Path | None = None,
-                   weight_scheme: str = "distance", glob_pat: str = "*.xyz") -> Path:
+                   weight_scheme: str = "distance", glob_pat: str = "*.xyz",
+                   profile: str = "zn_cys_his") -> Path:
     out = out_root / "approach1"
     cmd = [_PYTHON, "-m", "zn_cys_his.clustering.step03_approach1_cartesian",
            "--xyz-dir", xyz_dir,
            "--out-dir", out,
            "--glob", glob_pat,
            "--k-min", str(k_min), "--k-max", str(k_max), "--k-step", str(k_step),
-           "--weight-scheme", weight_scheme]
+           "--weight-scheme", weight_scheme,
+           "--profile", profile]
     if stats_csv is not None:
         cmd += ["--stats-csv", stats_csv]
     _run("step03 approach1_cartesian", cmd, skip_if=out / "labels.csv", force=force)
@@ -306,6 +308,11 @@ def main() -> int:
     parser.add_argument("--no-fetch", action="store_true",
                         help="Skip the prep-stage PDB download from RCSB (use whatever "
                              "PDBs are already present in the pdb dir).")
+    parser.add_argument("--profile", choices=["zn_cys_his", "generic", "heme"],
+                        default="zn_cys_his",
+                        help="Structure chemistry (default: zn_cys_his). 'generic'/'heme' "
+                             "cluster arbitrary rigid structures: the prep stage "
+                             "(secstruct + stats) is skipped and only approach 1 runs.")
     args = parser.parse_args()
 
     if args.stage and args.from_stage:
@@ -318,7 +325,12 @@ def main() -> int:
 
     out_root = (args.out_dir.expanduser().resolve() if args.out_dir else mirror_output(base))
     k_min, k_max, k_step = args.k_min, args.k_max, args.k_step
-    approaches = sorted(set(args.approaches))
+    profile = args.profile
+    # Generic/heme chemistries have no Cys/His prep and only approach 1 applies.
+    if profile != "zn_cys_his":
+        approaches = [1]
+    else:
+        approaches = sorted(set(args.approaches))
     weight_scheme = args.weight_scheme
     active_glob = args.xyz_glob
     pdb_dir         = args.pdb_dir.expanduser().resolve() if args.pdb_dir else None
@@ -344,7 +356,11 @@ def main() -> int:
           f"k={k_min}..{k_max} ===\n")
 
     # ----- prep: fetch PDBs -> annotate (writes copies) -> stats -----------
-    if "prep" in run:
+    # Prep is Zn/Cys/His-specific (secstruct annotation + geometric metrics);
+    # generic/heme profiles skip it entirely and cluster the raw XYZ.
+    if "prep" in run and profile != "zn_cys_his":
+        print(f"  skip  prep stage (profile={profile}: no secstruct/stats)")
+    if "prep" in run and profile == "zn_cys_his":
         if not args.no_fetch and pdb_dir is None:
             # Repopulate the dataset's (un-versioned) pdb-files/ from RCSB.
             step_fetch_pdbs(xyz_raw, annot_pdb_dir, active_glob, args.force)
@@ -372,7 +388,8 @@ def main() -> int:
     if "cluster" in run:
         if 1 in approaches:
             step_approach1(out_root, xyz_dir, k_min, k_max, k_step, args.force,
-                           stats_csv=stats_csv, weight_scheme=weight_scheme, glob_pat=active_glob)
+                           stats_csv=stats_csv, weight_scheme=weight_scheme,
+                           glob_pat=active_glob, profile=profile)
         if 2 in approaches:
             aligned_dir = out_root / "approach1" / "aligned_xyz"
             if aligned_dir.is_dir():
@@ -385,7 +402,12 @@ def main() -> int:
                            stats_csv=stats_csv, weight_scheme=weight_scheme, glob_pat=active_glob)
 
     # ----- validate: every approach output present, + comparison ----------
-    if "validate" in run:
+    # step06 (RMSD metrics/plots) is still Cys/His-specific; skip for generic/heme
+    # until it is made profile-aware.  Clustering outputs (labels/embeddings) are
+    # already written by the cluster stage.
+    if "validate" in run and profile != "zn_cys_his":
+        print(f"  skip  validate stage (profile={profile}: step06 not yet profile-aware)")
+    if "validate" in run and profile == "zn_cys_his":
         approach_dirs = [out_root / f"approach{n}" for n in approaches
                          if (out_root / f"approach{n}" / "labels.csv").is_file()]
         if not approach_dirs:
