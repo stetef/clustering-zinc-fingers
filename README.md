@@ -102,6 +102,47 @@ uv run streamlit run src/zn_cys_his/query_app/app.py
 
 App-specific details live in [query_app/README.md](src/zn_cys_his/query_app/README.md).
 
+## 🩸 Other metal sites (heme, generic)
+
+The same pipeline clusters any rigid metal site via the `--profile` flag. `heme`
+treats each structure as one rigid Fe-centred atom cloud (no Cys/His-specific prep,
+geometry metrics, or tetrahedral assumptions); `generic` does the same with no metal
+centre. Put the pocket XYZ files in `data/heme/xyz-files/` — **the first 4 characters
+of each filename must be the RCSB PDB id** (e.g. `1a6g_cluster1_Fe.xyz` → `1a6g`), which
+is how source PDBs are matched for R-factors, B-factors, and (if needed) atom names.
+
+```bash
+# 1. cluster the heme sites (prep is skipped; only approach 1 runs)
+uv run zch-pipeline --base-dir data/heme --out-dir cluster-output/heme \
+    --profile heme --pdb-dir data/heme/pdb-files --fetch-pdbs --k-min 4 --k-max 10
+
+# 2. copy the clustering CSVs the app reads into the tracked validation_data/ folder
+uv run python -m zn_cys_his.query_app.build_validation_data
+
+# 3. launch a heme-only viewer (no structures.db / spectra needed)
+ZCH_DATASETS=heme uv run streamlit run src/zn_cys_his/query_app/validation_app.py
+```
+
+- **Step 1** aligns all sites to a common reference and k-means clusters them, writing
+  `cluster-output/heme/{approach1,validation}/`. `--fetch-pdbs` downloads any missing
+  source PDBs into `--pdb-dir`, used to compute the applicable metrics — `r_work`,
+  `r_free`, Fe & average B-factor — and the ligand `family` (the full set of
+  non-porphyrin residues in the pocket). Drop `--pdb-dir`/`--fetch-pdbs` to cluster on
+  geometry alone (those metric columns stay blank).
+- **Step 2** auto-discovers the new `cluster-output/heme/` output and copies its
+  `embeddings.csv` + `kmeans_labels_with_stats.csv` into
+  `src/zn_cys_his/query_app/validation_data/heme/`.
+- **Step 3** opens the interactive t-SNE + per-cluster metric/ligand distributions for
+  just the heme dataset. `ZCH_DATASETS` is a comma-separated allowlist; set
+  `ZCH_VALIDATION_DIR` instead to point at a different output tree entirely. Omit both to
+  browse every dataset.
+
+> **Note on clustering vs. ligand identity.** Coordinate RMSD groups hemes by *geometry*
+> (coordination number, doming, proximal Cys vs His), not by the chemical identity of a
+> small axial ligand — an axial N and O sit in nearly the same place. The ligand is
+> surfaced as the `family` label instead: color the t-SNE by it to see how geometry and
+> ligand relate.
+
 ## 🛠️ Console scripts
 
 | Command | Purpose |
