@@ -1337,8 +1337,8 @@ def _plot_per_cluster_rows(
                          if r.get("family", "").strip()]
                 counts = Counter(c_fam)
                 if counts:
-                    # Show top-20 families; sort by count descending.
-                    fams = sorted(counts, key=lambda x: counts[x], reverse=True)[:20]
+                    # Show every family in this cluster (sorted by count desc).
+                    fams = sorted(counts, key=lambda x: counts[x], reverse=True)
                     xs = range(len(fams))
                     ax.bar(xs, [counts[f] for f in fams], color=color, alpha=0.85)
                     ax.set_xticks(list(xs))
@@ -1463,14 +1463,11 @@ def _plot_overlay_metrics(
         plt.close(fig)
 
     # ── Family side-by-side overlays ────────────────────────────────────────
-    _MAX_FAM_OVERLAY = 30  # show top-N families in the overlay figure
     all_family_pairs = [(int(row["cluster"]), (row.get("family") or "").strip())
                         for row in rows if (row.get("family") or "").strip()]
     if all_family_pairs:
-        # Keep only the top families across all clusters.
-        top_fam_overall = [f for f, _ in Counter(fam for _, fam in all_family_pairs)
-                           .most_common(_MAX_FAM_OVERLAY)]
-        all_families = sorted(top_fam_overall)
+        # Every family across the dataset (no top-N cap).
+        all_families = sorted(set(fam for _, fam in all_family_pairs))
         n_fam = len(all_families)
         xs = np.arange(n_fam)
         sp_w = max(4.0, n_fam * 0.45 + 1.5)

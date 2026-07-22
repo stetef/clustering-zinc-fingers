@@ -290,15 +290,22 @@ def distribution_figure(labels_df: pd.DataFrame, focus, color: str) -> go.Figure
 
     cluster_rows = labels_df if focus == "All" else labels_df[labels_df["cluster"] == focus]
 
+    # Every family in the dataset, in a fixed order (by overall count desc) so the
+    # x-axis is identical across clusters and *all* labels appear — no top-N cap.
+    all_family_counts = Counter(f for f in labels_df["family"].astype(str).str.strip() if f)
+    all_fams = [f for f, _ in all_family_counts.most_common()]
+
     for i, (col, _lbl) in enumerate(panels):
         r, cpos = i // ncols + 1, i % ncols + 1
         if col == "family":
             counts = Counter(f for f in cluster_rows["family"].astype(str).str.strip() if f)
-            fams = [f for f, _ in counts.most_common(20)]
-            fig.add_trace(go.Bar(x=fams, y=[counts[f] for f in fams],
+            fig.add_trace(go.Bar(x=all_fams, y=[counts.get(f, 0) for f in all_fams],
                                  marker_color=(color if focus != "All" else _GRAY),
                                  showlegend=False), row=r, col=cpos)
             fig.update_yaxes(title_text="count", row=r, col=cpos)
+            # Force all category labels to show, angled + small for many families.
+            fig.update_xaxes(categoryorder="array", categoryarray=all_fams,
+                             tickangle=-60, tickfont=dict(size=8), row=r, col=cpos)
             continue
 
         overall = labels_df[col].dropna().to_numpy(dtype=float)
