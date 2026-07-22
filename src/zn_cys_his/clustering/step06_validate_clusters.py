@@ -225,6 +225,20 @@ def _fmt_stat(v: str | None, digits: int = 4) -> str:
     return "n/a" if f is None else f"{f:.{digits}f}"
 
 
+# Default (Zn(Cys/His)) hero-metric spec: (summary_csv key, label, decimals).
+# Other profiles pass their own via metric_specs.
+_ZN_HERO_SPECS: list[tuple[str, str, int]] = [
+    ("volume_A3_mean", "volume mean (A^3)", 3),
+    ("q_tetra_coord_mean", "q tetra coord mean", 4),
+    ("q_tetra_ca_mean", "q tetra CA mean", 4),
+    ("r_work_mean", "r work mean", 4),
+    ("r_free_mean", "r free mean", 4),
+    ("zn_bfactor_mean", "Zn B-factor mean", 3),
+    ("all_dihedrals_deg_mean", "dihedral mean (deg)", 2),
+    ("all_coord_res_bfactor_avg_mean", "coord-res B mean", 3),
+]
+
+
 def _build_report_html(
     *,
     title: str,
@@ -236,7 +250,10 @@ def _build_report_html(
     overlay_images: list[dict[str, str]],
     image_b64: dict[str, str],
     inline_plotly_js: str | None,
+    metric_specs: list[tuple[str, str, int]] | None = None,
 ) -> str:
+    if metric_specs is None:
+        metric_specs = _ZN_HERO_SPECS
     clusters_sorted = sorted(summary_rows.keys(), key=_cluster_sort_key)
 
     palette = [
@@ -258,14 +275,10 @@ def _build_report_html(
             "cluster": c,
             "n_total": r.get("n_total", ""),
             "n_with_stats": r.get("n_with_stats", ""),
-            "volume_mean": _fmt_stat(r.get("volume_A3_mean"), 3),
-            "q_coord_mean": _fmt_stat(r.get("q_tetra_coord_mean"), 4),
-            "q_ca_mean": _fmt_stat(r.get("q_tetra_ca_mean"), 4),
-            "r_work_mean": _fmt_stat(r.get("r_work_mean"), 4),
-            "r_free_mean": _fmt_stat(r.get("r_free_mean"), 4),
-            "zn_bfactor_mean": _fmt_stat(r.get("zn_bfactor_mean"), 3),
-            "dihedral_mean": _fmt_stat(r.get("all_dihedrals_deg_mean"), 2),
-            "coord_res_bf_mean": _fmt_stat(r.get("all_coord_res_bfactor_avg_mean"), 3),
+            # Metric list rendered generically by the JS (label/value pairs), so
+            # the same template serves any profile's metric set.
+            "metrics": [{"label": label, "value": _fmt_stat(r.get(key), digits)}
+                        for key, label, digits in metric_specs],
         }))
 
     state = {
@@ -461,16 +474,7 @@ function updateHero(point) {
 
   if (!m) { document.getElementById("hero-grid").innerHTML = ""; return; }
 
-  const html = [
-    metricHtml("volume mean (A^3)", m.volume_mean),
-    metricHtml("q tetra coord mean", m.q_coord_mean),
-    metricHtml("q tetra CA mean", m.q_ca_mean),
-    metricHtml("r work mean", m.r_work_mean),
-    metricHtml("r free mean", m.r_free_mean),
-    metricHtml("Zn B-factor mean", m.zn_bfactor_mean),
-    metricHtml("dihedral mean (deg)", m.dihedral_mean),
-    metricHtml("coord-res B mean", m.coord_res_bf_mean),
-  ].join("");
+  const html = (m.metrics || []).map(mm => metricHtml(mm.label, mm.value)).join("");
   document.getElementById("hero-grid").innerHTML = html;
 }
 
@@ -653,10 +657,13 @@ def build_cluster_reports(
     title: str = "",
     vendor_cache: Path | None = None,
     best_k: int | None = None,
+    metric_specs: list[tuple[str, str, int]] | None = None,
 ) -> None:
     """Generate online and offline HTML cluster distribution reports.
 
-    Silently skips if any required input files are missing.
+    Silently skips if any required input files are missing.  ``metric_specs``
+    (summary-key, label, decimals) selects the hero-panel metrics; defaults to
+    the Zn(Cys/His) set.
     """
     embeddings_csv = clustering_dir / "embeddings.csv"
     summary_csv    = clustering_dir / "kmeans_cluster_stats_summary.csv"
@@ -722,6 +729,7 @@ def build_cluster_reports(
         overlay_images=overlay_images,
         image_b64=image_b64,
         inline_plotly_js=None,
+        metric_specs=metric_specs,
     )
 
     print("Building offline variant (inlining Plotly.js)...")
@@ -737,6 +745,7 @@ def build_cluster_reports(
         overlay_images=overlay_images,
         image_b64=image_b64,
         inline_plotly_js=inline_js,
+        metric_specs=metric_specs,
     )
 
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -1839,7 +1848,8 @@ def main() -> int:
 
         # Atom-cloud renders read the Cys/His residue-arm layout; only meaningful
         # for that profile.  Generic/heme skip them (RMSD metrics below still run).
-        if profile.has_metrics:
+        _zn = profile.name == "zn_cys_his"
+        if _zn:
             print("Rendering atom cloud …")
             plot_atom_cloud_html(structs, out_dir, labels_csv=labels_csv,
                                  approach_name=approach_dir.name, best_k=best_k)
@@ -1868,7 +1878,7 @@ def main() -> int:
         print(f"RMSD scatter → {out_dir / f'rmsd_scatter_k{best_k}.png'}")
 
         # Count permuted residues (Cys/His RESSEQ-based; skip for other profiles).
-        if profile.has_metrics:
+        if _zn:
             print("Counting permuted residues …")
             n_perm, n_total = count_permuted_residues(xyz_dir)
             perm_line = f"permuted={n_perm}/{n_total} ({100*n_perm/n_total:.1f}% had residues reordered)" if n_total else "permuted=0/0"
@@ -1877,7 +1887,7 @@ def main() -> int:
 
         # PCA→XYZ reconstruction uses the Cys/His residue layout (structure_like);
         # restrict to that profile.
-        if args.approach1 and profile.has_metrics:
+        if args.approach1 and _zn:
             pca_xyz_dir = out_dir / "pca_to_xyz"
             print(f"PCA → XYZ reconstruction → {pca_xyz_dir}")
             explained = pca_to_xyz(xyz_dir, pca_xyz_dir)
@@ -1906,7 +1916,7 @@ def main() -> int:
             else:
                 print(f"(Skipping sampled overlay: --sampled-val-dir not found: {sampled_dir})")
 
-        if labels_stats_csv.is_file() and profile.has_metrics:
+        if labels_stats_csv.is_file() and profile.name == "zn_cys_his":
             plot_tsne_qtetra_highlighted(
                 embeddings_csv, labels_stats_csv,
                 out_dir / "tsne_qtetra_lt0p8.png",
@@ -1918,12 +1928,17 @@ def main() -> int:
     if not args.no_report:
         clustering_dir = (args.clustering_dir or approach_dir).expanduser().resolve()
         if profile.has_metrics:
+            # Non-Zn profiles supply their own hero-metric spec (Zn uses the default).
+            specs = None
+            if profile.name != "zn_cys_his" and profile.metrics:
+                specs = [(f"{col}_mean", label, 3) for col, label in profile.metrics]
             build_cluster_reports(
                 clustering_dir=clustering_dir,
                 out_dir=out_dir,
                 title=args.title or f"{approach_dir.name} Cluster Distribution Report",
                 vendor_cache=args.vendor_cache,
                 best_k=best_k,
+                metric_specs=specs,
             )
         else:
             build_minimal_report(

@@ -167,13 +167,19 @@ def _build_matcher(structures: list) -> Optional[Matcher]:
 
 def make_profile(pdb_dir=None, fetch_pdbs: bool = False) -> StructureProfile:
     from .pdb_tags import MACROCYCLE_RES
+    from .heme_stats import METRICS, make_compute_stats
     return StructureProfile(
         name="heme",
         gather=make_gather(center_name=_CENTER, pdb_dir=pdb_dir, fetch_pdbs=fetch_pdbs,
                            macrocycle=MACROCYCLE_RES),
         build_matcher=_build_matcher,
         write_xyz=write_generic_xyz,
-        has_metrics=False,
+        # Quality/environment metrics apply to heme (unlike the Zn geometry set):
+        # R-factors, Fe & average B-factor, plus the categorical ligand family.
+        has_metrics=True,
+        metrics=METRICS,
+        compute_stats=make_compute_stats(_CENTER, MACROCYCLE_RES,
+                                         pdb_dir=pdb_dir, fetch=fetch_pdbs),
     )
 
 

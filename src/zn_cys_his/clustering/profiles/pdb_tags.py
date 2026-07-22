@@ -55,11 +55,16 @@ def parse_pdb_atoms(pdb_path: Path) -> list[dict]:
         except ValueError:
             continue
         elem = ln[76:78].strip() or ln[12:16].strip()[:1]
+        try:
+            bfac = float(ln[60:66])
+        except ValueError:
+            bfac = None
         out.append({
             "name": ln[12:16].strip().upper(),
             "res_name": ln[17:20].strip().upper(),
             "element": elem.capitalize(),
             "xyz": np.array([x, y, z]),
+            "bfactor": bfac,
         })
     return out
 

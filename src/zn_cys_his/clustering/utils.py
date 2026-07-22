@@ -1165,8 +1165,12 @@ def _merge_labels_stats(
         merged.update(srow)
 
         if has_stats:
+            # Zn(Cys/His)-only aggregate; omit the column entirely when there are
+            # no coord_cys_/coord_his_ B-factors (e.g. heme) so it doesn't surface
+            # as an empty metric panel downstream.
             avg = _coord_res_bfactor_avg(srow)
-            merged["all_coord_res_bfactor_avg"] = f"{avg:.4f}" if avg is not None else ""
+            if avg is not None:
+                merged["all_coord_res_bfactor_avg"] = f"{avg:.4f}"
 
         rows.append(merged)
 
@@ -1216,14 +1220,17 @@ def _write_cluster_pdb_family(out_dir: Path, rows: list[dict]) -> None:
     print(f"  Cluster/PDB/family → {path}")
 
 
-def _compute_stats_summary(rows: list[dict], unique_clusters: list[int]) -> list[dict]:
+def _compute_stats_summary(rows: list[dict], unique_clusters: list[int],
+                           metrics: Optional[list[tuple[str, str]]] = None) -> list[dict]:
     """Per-cluster aggregated statistics for numeric metrics."""
+    if metrics is None:
+        metrics = _NUMERIC_PLOT_METRICS
     rows_by_cluster: dict[int, list[dict]] = {c: [] for c in unique_clusters}
     for row in rows:
         rows_by_cluster[int(row["cluster"])].append(row)
 
     summary_cols = ["cluster", "n_total", "n_with_stats"]
-    numeric_metrics = [col for col, _ in _NUMERIC_PLOT_METRICS]
+    numeric_metrics = [col for col, _ in metrics]
     for m in numeric_metrics:
         key = _DIHEDRAL_SUMMARY_KEY if m == _DIHEDRAL_COL else m
         summary_cols += [f"{key}_n", f"{key}_mean", f"{key}_std",
@@ -1237,7 +1244,7 @@ def _compute_stats_summary(rows: list[dict], unique_clusters: list[int]) -> list
         n_with_stats = sum(int(r.get("has_stats", 0) or 0) for r in cluster_rows)
         srow: dict = {"cluster": c, "n_total": n_total, "n_with_stats": n_with_stats}
 
-        for col, _ in _NUMERIC_PLOT_METRICS:
+        for col, _ in metrics:
             key = _DIHEDRAL_SUMMARY_KEY if col == _DIHEDRAL_COL else col
             vals = [v for r in cluster_rows if (v := _safe_float(r.get(col))) is not None]
             if vals:
@@ -1281,18 +1288,21 @@ def _plot_per_cluster_rows(
     unique_clusters: list[int],
     color_by_cluster: dict[int, str],
     out_dir: Path,
+    metrics: Optional[list[tuple[str, str]]] = None,
 ) -> None:
     if not _MPL_OK:
         return
+    if metrics is None:
+        metrics = _NUMERIC_PLOT_METRICS
     out_dir.mkdir(parents=True, exist_ok=True)
 
     from collections import Counter
 
     # Pre-compute full-dataset values for background histograms.
-    all_vals: dict[str, list[float]] = {col: [] for col, _ in _NUMERIC_PLOT_METRICS}
+    all_vals: dict[str, list[float]] = {col: [] for col, _ in metrics}
     all_family: list[str] = []
     for row in rows:
-        for col, _ in _NUMERIC_PLOT_METRICS:
+        for col, _ in metrics:
             v = _safe_float(row.get(col))
             if v is not None:
                 all_vals[col].append(v)
@@ -1303,7 +1313,7 @@ def _plot_per_cluster_rows(
     N_all = len(rows)
     all_families_sorted = sorted(set(all_family))
     has_family = bool(all_families_sorted)
-    metrics_with_label = list(_NUMERIC_PLOT_METRICS) + (
+    metrics_with_label = list(metrics) + (
         [("family", "Family")] if has_family else []
     )
     n_metrics = len(metrics_with_label)
@@ -1378,10 +1388,13 @@ def _plot_overlay_metrics(
     unique_clusters: list[int],
     color_by_cluster: dict[int, str],
     out_dir: Path,
+    metrics: Optional[list[tuple[str, str]]] = None,
 ) -> None:
     """Side-by-side per-cluster subplots for each metric (one file per metric)."""
     if not _MPL_OK:
         return
+    if metrics is None:
+        metrics = _NUMERIC_PLOT_METRICS
     out_dir.mkdir(parents=True, exist_ok=True)
 
     from collections import Counter
@@ -1408,7 +1421,7 @@ def _plot_overlay_metrics(
         return fig, axes, nr, nc
 
     # ── Numeric side-by-side overlays ──────────────────────────────────────
-    for col, label in _NUMERIC_PLOT_METRICS:
+    for col, label in metrics:
         all_vals = [v for row in rows if (v := _safe_float(row.get(col))) is not None]
         if not all_vals:
             continue
@@ -1522,15 +1535,21 @@ def build_cluster_distribution_plots(
     id_list: list[str],
     labels: np.ndarray,
     stats_csv: Optional[Path],
+    metrics: Optional[list[tuple[str, str]]] = None,
 ) -> None:
     """Generate kmeans_labels_with_stats.csv, stats summary, and histogram PNGs.
 
     Requires stats_csv (per-structure metadata CSV with an 'id' column).
-    Silently skips if stats_csv is None or does not exist.
+    Silently skips if stats_csv is None or does not exist.  ``metrics`` (list of
+    (column, label)) selects which numeric metrics to bin; defaults to the
+    Zn(Cys/His) set.  Non-Zn profiles pass their own smaller set (e.g. heme:
+    r_work, r_free, avg B-factor).
     """
     if stats_csv is None or not stats_csv.is_file():
         print(f"  Distribution plots skipped (no stats CSV)")
         return
+    if metrics is None:
+        metrics = _NUMERIC_PLOT_METRICS
 
     print(f"\nBuilding cluster distribution plots from {stats_csv.name} …")
     rows, color_by_cluster = _merge_labels_stats(id_list, labels, stats_csv)
@@ -1539,7 +1558,7 @@ def build_cluster_distribution_plots(
     _write_labels_with_stats(out_dir, rows)
     _write_cluster_pdb_family(out_dir, rows)
 
-    summary = _compute_stats_summary(rows, unique_clusters)
+    summary = _compute_stats_summary(rows, unique_clusters, metrics)
     _write_stats_summary(out_dir, summary)
 
     plots_dir = out_dir / "cluster_distribution_plots"
@@ -1549,7 +1568,7 @@ def build_cluster_distribution_plots(
             for _f in _subdir.glob("*.png"):
                 _f.unlink()
     _plot_per_cluster_rows(rows, unique_clusters, color_by_cluster,
-                           plots_dir / "per_cluster_rows")
+                           plots_dir / "per_cluster_rows", metrics)
     _plot_overlay_metrics(rows, unique_clusters, color_by_cluster,
-                          plots_dir / "all_cluster_overlays")
+                          plots_dir / "all_cluster_overlays", metrics)
     print("  Distribution plots done.")

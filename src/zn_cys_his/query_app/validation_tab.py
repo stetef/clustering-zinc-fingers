@@ -24,6 +24,7 @@ points on the t-SNE scatter; both funnel through one session-state value.
 from __future__ import annotations
 
 import math
+import os
 from collections import Counter
 from pathlib import Path
 
@@ -34,10 +35,16 @@ import streamlit as st
 from plotly.subplots import make_subplots
 
 HERE = Path(__file__).resolve().parent
-VALIDATION_DIR = HERE / "validation_data"
+# Data location is overridable so a local copy can point at a different output
+# tree (e.g. a heme-only validation_data).  ZCH_DATASETS is an optional
+# comma-separated allowlist that restricts which datasets the tab shows.
+VALIDATION_DIR = Path(os.environ.get("ZCH_VALIDATION_DIR", HERE / "validation_data"))
+_DATASET_ALLOW = {d.strip() for d in os.environ.get("ZCH_DATASETS", "").split(",") if d.strip()}
 
 # Same 8 metrics the pipeline's per-cluster histograms bin (utils._NUMERIC_PLOT_
 # METRICS), with plain-text labels (plotly, not matplotlib LaTeX).
+# Union of metrics across all profiles; only columns actually present in a given
+# dataset's CSV are shown, so Zn and heme datasets each display just their own.
 NUMERIC_METRICS: list[tuple[str, str]] = [
     ("volume_A3", "Volume (Å³)"),
     ("q_tetra_coord", "q_tetra (coord)"),
@@ -47,6 +54,9 @@ NUMERIC_METRICS: list[tuple[str, str]] = [
     ("zn_bfactor", "Zn B-factor"),
     ("cys_dihedral_mean_deg", "Dihedral mean (°)"),
     ("all_coord_res_bfactor_avg", "Coord-res B̄"),
+    # heme profile metrics
+    ("fe_bfactor", "Fe B-factor"),
+    ("avg_bfactor", "Avg B-factor (non-Fe)"),
 ]
 
 # Plain-language definitions of each structure metric, sourced from the pipeline's
@@ -109,7 +119,10 @@ _FALLBACK_PALETTE = [
 def available_datasets() -> list[str]:
     if not VALIDATION_DIR.is_dir():
         return []
-    return sorted(p.name for p in VALIDATION_DIR.iterdir() if p.is_dir())
+    names = sorted(p.name for p in VALIDATION_DIR.iterdir() if p.is_dir())
+    if _DATASET_ALLOW:
+        names = [n for n in names if n in _DATASET_ALLOW]
+    return names
 
 
 def approaches_for(dataset: str) -> list[str]:

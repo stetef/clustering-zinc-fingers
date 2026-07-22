@@ -180,3 +180,10 @@ class StructureProfile:
     build_matcher: Callable[[list], Optional[Matcher]]
     write_xyz: Callable[[object, Path], None]
     has_metrics: bool = False
+    # Numeric per-structure metrics to bin in the distribution report, as
+    # (csv_column, display_label).  Empty => no distribution report.  "family"
+    # (categorical) is always handled separately when present.
+    metrics: tuple = ()
+    # Optional stats computer: compute_stats(structures, pdb_dir, fetch) -> dict
+    # {id: {column: value}} for the metric columns above.  None => no stats.
+    compute_stats: Optional[Callable] = None

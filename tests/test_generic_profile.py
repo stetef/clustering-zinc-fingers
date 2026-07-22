@@ -116,8 +116,8 @@ def test_generic_run_labels_every_structure(tmp_path: Path) -> None:
     assert cols == ["id", "cluster", "cluster_color", "pdb_id", "family"]
 
 
-def test_heme_family_from_coordinating_residues(tmp_path: Path) -> None:
-    """family = sorted non-HEM residues within the coordination cutoff of Fe."""
+def test_heme_family_includes_all_pocket_residues(tmp_path: Path) -> None:
+    """family = sorted set of ALL non-macrocycle residues present (pocket included)."""
     d = tmp_path / "data"; d.mkdir()
 
     def write(name: str, extra_lines: list[str]) -> None:
@@ -132,18 +132,17 @@ def test_heme_family_from_coordinating_residues(tmp_path: Path) -> None:
         lines = core + extra_lines
         (d / f"{name}.xyz").write_text(f"{len(lines)}\nheme\n" + "\n".join(lines) + "\n")
 
-    # 5-coordinate (His only) and 6-coordinate (His + distal NO within cutoff).
+    # His only; His + distal NO; His + a far pocket PHE (still counted — it's in the file).
     write("1aaa_h", [])
     write("2bbb_h", ["N  0.000 0.000 -1.900  # RES=NO RESSEQ=200 ATOM=N",
-                      "O  0.000 0.600 -2.900  # RES=NO RESSEQ=200 ATOM=O"])  # O is >3 Å, N within
-    # A far-away pocket residue must NOT count as a ligand (beyond cutoff).
+                      "O  0.000 0.600 -2.900  # RES=NO RESSEQ=200 ATOM=O"])
     write("3ccc_h", ["C 8.0 8.0 8.0  # RES=PHE RESSEQ=50 ATOM=CA"])
 
     structs, _ = get_profile("heme").gather(d, "*.xyz")
     fam = {s.id: s.family for s in structs}
     assert fam["1aaa_h"] == "HIS"
     assert fam["2bbb_h"] == "HIS+NO"
-    assert fam["3ccc_h"] == "HIS"  # PHE at 8 Å excluded
+    assert fam["3ccc_h"] == "HIS+PHE"  # pocket PHE included (present in the file)
 
 
 def test_pdb_back_derive_assigns_names(tmp_path: Path) -> None:
@@ -169,6 +168,38 @@ def test_pdb_back_derive_assigns_names(tmp_path: Path) -> None:
     got = back_derive(raw, atoms)
     assert got is not None
     assert got["names"] == ["HEM_FE", "HEM_NA", "HIS_NE2"]
+
+
+def test_heme_stats_from_pdb(tmp_path: Path) -> None:
+    """compute_stats reads R-factors + B-factors and averages B over non-Fe atoms."""
+    from zn_cys_his.clustering.profiles.heme_stats import make_compute_stats
+
+    xyz = tmp_path / "xyz"; xyz.mkdir()
+    pdb = tmp_path / "pdb"; pdb.mkdir()
+    # PDB with R-factors and three atoms (Fe B=10, two others B=20 and 30).
+    (pdb / "1abc.pdb").write_text(
+        "REMARK   3   R VALUE            (WORKING SET) : 0.150\n"
+        "REMARK   3   FREE R VALUE                     : 0.190\n"
+        "HETATM    1 FE   HEM A   1       0.000   0.000   0.000  1.00 10.00          FE\n"
+        "HETATM    2 NA   HEM A   1       2.000   0.000   0.000  1.00 20.00           N\n"
+        "ATOM      3 NE2  HIS A   2       0.000   0.000   2.100  1.00 30.00           N\n"
+    )
+    (xyz / "1abc_h.xyz").write_text(
+        "3\nheme\n"
+        "Fe 0.000 0.000 0.000  # RES=HEM RESSEQ=1 ATOM=FE\n"
+        "N  2.000 0.000 0.000  # RES=HEM RESSEQ=1 ATOM=NA\n"
+        "N  0.000 0.000 2.100  # RES=HIS RESSEQ=2 ATOM=NE2\n"
+    )
+    compute = make_compute_stats("FE", macrocycle={"HEM"}, pdb_dir=pdb, fetch=False)
+    out = compute(xyz, "*.xyz", tmp_path / "stats.csv")
+    assert out is not None
+
+    import csv
+    row = next(csv.DictReader(out.open()))
+    assert row["r_work"] == "0.150" and row["r_free"] == "0.190"
+    assert row["fe_bfactor"] == "10.000"
+    assert row["avg_bfactor"] == "25.000"   # mean(20, 30), Fe excluded
+    assert row["family"] == "HIS"           # non-macrocycle residue
 
 
 def test_minimal_report_written(tmp_path: Path) -> None:

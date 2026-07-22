@@ -259,12 +259,19 @@ def run(
     # Save standard outputs (includes embeddings.csv + tsne_kmeans.png)
     save_outputs(out_dir, [s.id for s in aligned], table, best)
 
-    # Distribution plots only where per-structure metrics exist (zn_cys_his).
-    # Metric-free profiles still emit a minimal labels-with-stats CSV so the
-    # Streamlit validation tab (t-SNE + family) works with zero app changes.
+    # Distribution plots + report inputs where per-structure metrics exist.
+    # For non-Zn profiles the metric set is smaller and (heme) computed here from
+    # the source PDBs via the profile's stats hook.  Metric-free profiles still
+    # emit a minimal labels-with-stats CSV so the app works with zero changes.
     if profile.has_metrics:
+        csv_path = stats_csv
+        if csv_path is None and profile.compute_stats is not None:
+            csv_path = profile.compute_stats(
+                xyz_dir, glob_pat, out_dir / "structure_stats.csv"
+            )
         build_cluster_distribution_plots(
-            out_dir, [s.id for s in aligned], best["labels"], stats_csv
+            out_dir, [s.id for s in aligned], best["labels"], csv_path,
+            metrics=list(profile.metrics) or None,
         )
     else:
         family_by_id = {s.id: getattr(s, "family", "") for s in aligned}

@@ -91,37 +91,23 @@ def read_raw_xyz(path: Path, include_h: bool = False) -> Optional[dict]:
             "coords": np.array(coords), "res_names": res_names, "tagged": tagged}
 
 
-def compute_family(raw: dict, center_name: Optional[str], cutoff: float = 3.0,
+def compute_family(raw: dict, center_name: Optional[str],
                    macrocycle: Optional[set] = None) -> str:
-    """Ligand signature = sorted non-macrocycle residues coordinating the center.
+    """Family = sorted set of all non-macrocycle residues present in the file.
 
-    A residue is "coordinating" if any of its atoms lies within ``cutoff`` Å of
-    the center atom (Fe for heme).  The macrocycle residue itself (HEM/HEC/…) is
-    excluded, so the signature is the axial/distal (and proximal) ligand set,
-    e.g. ``HIS`` (5-coordinate), ``HIS+NO``, ``CYS``, ``HIS+IMD``.  Returns "" when
-    there is no center or no per-atom RES tags to work from.
+    Every residue in the extracted environment (the file only contains atoms
+    within the extraction cutoff of the center) counts — proximal/axial ligands
+    AND pocket residues — so the label reflects the full pocket content, e.g.
+    ``HIS`` (5-coordinate), ``HIS+NO``, ``ARG+HIS``, ``GLN+HIS+TYR``.  Only the
+    macrocycle residue itself (HEM/HEC/…) is excluded, since it is constant.
+    Returns "" when there are no per-atom RES tags to work from.
     """
     res_names = raw.get("res_names") or []
-    if center_name is None or not any(res_names):
-        return ""
-    cn = center_name.upper()
-    coords = raw["coords"]
-    ci = None
-    for i, (nm, el) in enumerate(zip(raw["names"], raw["elements"])):
-        if nm.split("#")[0].split("_")[-1] == cn or el.upper() == cn:
-            ci = i
-            break
-    if ci is None:
+    if not any(res_names):
         return ""
     macro = macrocycle if macrocycle is not None else set()
-    fe = coords[ci]
-    coordinating: set[str] = set()
-    for i, r in enumerate(res_names):
-        if not r or r in macro or i == ci:
-            continue
-        if float(np.linalg.norm(coords[i] - fe)) <= cutoff:
-            coordinating.add(r)
-    return "+".join(sorted(coordinating))
+    present = {r for r in res_names if r and r not in macro}
+    return "+".join(sorted(present))
 
 
 # ---------------------------------------------------------------------------
