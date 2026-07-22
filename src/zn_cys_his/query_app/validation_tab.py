@@ -95,6 +95,13 @@ METRIC_DOCS: list[tuple[str, str]] = [
      "Average B-factor across **all coordinating residues**. Each residue contributes the mean "
      "B-factor of its atoms up to Cα (Cys: Cα, Cβ, Sγ; His: Cα, Cβ, Cγ, Nδ1, Cδ2, Cε1, Nε2); "
      "the Zn site itself is excluded."),
+    ("Fe B-factor",
+     "Crystallographic B-factor (atomic displacement parameter) of the heme **Fe** ion — higher "
+     "means more positional uncertainty / thermal motion."),
+    ("Avg B-factor (non-Fe)",
+     "Mean B-factor over **every heavy atom in the extracted cluster except the Fe** — the "
+     "porphyrin, the axial/distal ligands, and any pocket residues. A coarse measure of local "
+     "disorder / resolution around the site."),
     ("Family",
      "A compact code for the **coordinating motif** — the sequence order of the four ligand "
      "residues and the secondary structure they sit in — in two parts split by `-`:\n\n"
@@ -395,9 +402,17 @@ def render() -> None:
                f"(k={len(clusters)}). Pick a cluster below or box/lasso-select points "
                "on the t-SNE to focus it; every panel updates.")
 
-    with st.expander("📖 What do these metrics mean?"):
-        for label, desc in METRIC_DOCS:
-            st.markdown(f"**{label}** — {desc}")
+    # Only document the metrics this dataset actually has (labels of present
+    # numeric columns, plus Family when present) — so heme doesn't show Zn
+    # geometry docs and vice versa.
+    present_labels = {lbl for col, lbl in NUMERIC_METRICS if col in labels_df.columns}
+    if "family" in labels_df.columns and labels_df["family"].astype(str).str.strip().any():
+        present_labels.add("Family")
+    relevant_docs = [(lbl, desc) for lbl, desc in METRIC_DOCS if lbl in present_labels]
+    if relevant_docs:
+        with st.expander("📖 What do these metrics mean?"):
+            for label, desc in relevant_docs:
+                st.markdown(f"**{label}** — {desc}")
 
     idx = options.index(st.session_state[focus_key]) if st.session_state[focus_key] in options else 0
     st.selectbox("Focus cluster", options, index=idx,
