@@ -57,6 +57,7 @@ def read_raw_xyz(path: Path, include_h: bool = False) -> Optional[dict]:
     names: list[str] = []
     elements: list[str] = []
     coords: list[np.ndarray] = []
+    res_names: list[str] = []
     ordinal = 0
     tagged = False
     for line in lines[2:]:
@@ -82,11 +83,45 @@ def read_raw_xyz(path: Path, include_h: bool = False) -> Optional[dict]:
         names.append(name)
         elements.append(elem)
         coords.append(xyz)
+        res_names.append((_tag(comment, "RES=") or "").upper())
 
     if not coords:
         return None
     return {"id": path.stem, "names": names, "elements": elements,
-            "coords": np.array(coords), "tagged": tagged}
+            "coords": np.array(coords), "res_names": res_names, "tagged": tagged}
+
+
+def compute_family(raw: dict, center_name: Optional[str], cutoff: float = 3.0,
+                   macrocycle: Optional[set] = None) -> str:
+    """Ligand signature = sorted non-macrocycle residues coordinating the center.
+
+    A residue is "coordinating" if any of its atoms lies within ``cutoff`` Å of
+    the center atom (Fe for heme).  The macrocycle residue itself (HEM/HEC/…) is
+    excluded, so the signature is the axial/distal (and proximal) ligand set,
+    e.g. ``HIS`` (5-coordinate), ``HIS+NO``, ``CYS``, ``HIS+IMD``.  Returns "" when
+    there is no center or no per-atom RES tags to work from.
+    """
+    res_names = raw.get("res_names") or []
+    if center_name is None or not any(res_names):
+        return ""
+    cn = center_name.upper()
+    coords = raw["coords"]
+    ci = None
+    for i, (nm, el) in enumerate(zip(raw["names"], raw["elements"])):
+        if nm.split("#")[0].split("_")[-1] == cn or el.upper() == cn:
+            ci = i
+            break
+    if ci is None:
+        return ""
+    macro = macrocycle if macrocycle is not None else set()
+    fe = coords[ci]
+    coordinating: set[str] = set()
+    for i, r in enumerate(res_names):
+        if not r or r in macro or i == ci:
+            continue
+        if float(np.linalg.norm(coords[i] - fe)) <= cutoff:
+            coordinating.add(r)
+    return "+".join(sorted(coordinating))
 
 
 # ---------------------------------------------------------------------------
@@ -199,8 +234,8 @@ def _enrich_from_pdb(raws: list[dict], pdb_dir: Optional[Path], fetch: bool) -> 
 
 
 def make_gather(center_name: Optional[str] = None, include_h: bool = False,
-                pdb_dir: Optional[Path] = None,
-                fetch_pdbs: bool = False) -> Callable[[Path, str], tuple]:
+                pdb_dir: Optional[Path] = None, fetch_pdbs: bool = False,
+                macrocycle: Optional[set] = None) -> Callable[[Path, str], tuple]:
     def _gather(xyz_dir: Path, glob_pat: str) -> tuple:
         files = sorted(xyz_dir.glob(glob_pat))
         n_listed = len(files)
@@ -213,8 +248,11 @@ def make_gather(center_name: Optional[str] = None, include_h: bool = False,
             if n_enriched:
                 print(f"  back-derived atom tags from PDB for {n_enriched} structure(s)")
         template, elem_by_name = build_template(raws)
-        structures = [canonicalize(r, template, elem_by_name, center_name)
-                      for r in raws]
+        structures = []
+        for r in raws:
+            s = canonicalize(r, template, elem_by_name, center_name)
+            s.family = compute_family(r, center_name, macrocycle=macrocycle)
+            structures.append(s)
         report = {
             "n_listed": n_listed,
             "modal_atom_count": len(template),

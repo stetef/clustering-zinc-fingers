@@ -116,6 +116,36 @@ def test_generic_run_labels_every_structure(tmp_path: Path) -> None:
     assert cols == ["id", "cluster", "cluster_color", "pdb_id", "family"]
 
 
+def test_heme_family_from_coordinating_residues(tmp_path: Path) -> None:
+    """family = sorted non-HEM residues within the coordination cutoff of Fe."""
+    d = tmp_path / "data"; d.mkdir()
+
+    def write(name: str, extra_lines: list[str]) -> None:
+        core = [
+            "Fe  0.000 0.000 0.000  # RES=HEM RESSEQ=1 ATOM=FE",
+            "N   2.000 0.000 0.000  # RES=HEM RESSEQ=1 ATOM=NA",
+            "N   0.000 2.000 0.000  # RES=HEM RESSEQ=1 ATOM=NB",
+            "N  -2.000 0.000 0.000  # RES=HEM RESSEQ=1 ATOM=NC",
+            "N   0.000 -2.000 0.000  # RES=HEM RESSEQ=1 ATOM=ND",
+            "N   0.000 0.000 2.100  # RES=HIS RESSEQ=90 ATOM=NE2",  # proximal, 2.1 Å
+        ]
+        lines = core + extra_lines
+        (d / f"{name}.xyz").write_text(f"{len(lines)}\nheme\n" + "\n".join(lines) + "\n")
+
+    # 5-coordinate (His only) and 6-coordinate (His + distal NO within cutoff).
+    write("1aaa_h", [])
+    write("2bbb_h", ["N  0.000 0.000 -1.900  # RES=NO RESSEQ=200 ATOM=N",
+                      "O  0.000 0.600 -2.900  # RES=NO RESSEQ=200 ATOM=O"])  # O is >3 Å, N within
+    # A far-away pocket residue must NOT count as a ligand (beyond cutoff).
+    write("3ccc_h", ["C 8.0 8.0 8.0  # RES=PHE RESSEQ=50 ATOM=CA"])
+
+    structs, _ = get_profile("heme").gather(d, "*.xyz")
+    fam = {s.id: s.family for s in structs}
+    assert fam["1aaa_h"] == "HIS"
+    assert fam["2bbb_h"] == "HIS+NO"
+    assert fam["3ccc_h"] == "HIS"  # PHE at 8 Å excluded
+
+
 def test_pdb_back_derive_assigns_names(tmp_path: Path) -> None:
     """A tag-less structure recovers <RES>_<NAME> from a coordinate-matched PDB."""
     from zn_cys_his.clustering.profiles.pdb_tags import (

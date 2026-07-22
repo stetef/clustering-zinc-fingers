@@ -166,9 +166,11 @@ def _build_matcher(structures: list) -> Optional[Matcher]:
 
 
 def make_profile(pdb_dir=None, fetch_pdbs: bool = False) -> StructureProfile:
+    from .pdb_tags import MACROCYCLE_RES
     return StructureProfile(
         name="heme",
-        gather=make_gather(center_name=_CENTER, pdb_dir=pdb_dir, fetch_pdbs=fetch_pdbs),
+        gather=make_gather(center_name=_CENTER, pdb_dir=pdb_dir, fetch_pdbs=fetch_pdbs,
+                           macrocycle=MACROCYCLE_RES),
         build_matcher=_build_matcher,
         write_xyz=write_generic_xyz,
         has_metrics=False,

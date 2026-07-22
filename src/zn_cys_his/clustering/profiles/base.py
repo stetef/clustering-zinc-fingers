@@ -55,6 +55,7 @@ class GenericStructure:
     present: np.ndarray                      # (M,) bool; False = imputed/missing
     center_index: Optional[int] = None       # index of the metal/center atom, or None
     template_key: tuple = ()                 # composition signature (shared by dataset)
+    family: str = ""                         # categorical label (e.g. heme axial ligand set)
 
     # --- interface the shared clustering code relies on --------------------
     def heavy(self) -> np.ndarray:
@@ -71,7 +72,7 @@ class GenericStructure:
     def transformed(self, R: np.ndarray, t: np.ndarray) -> "GenericStructure":
         return GenericStructure(
             self.id, self.coords @ R.T + t, self.atom_names, self.elements,
-            self.present, self.center_index, self.template_key,
+            self.present, self.center_index, self.template_key, self.family,
         )
 
     def reorder_atoms(self, perm: np.ndarray) -> "GenericStructure":
@@ -93,6 +94,7 @@ class GenericStructure:
             self.present[perm],
             new_center,
             self.template_key,
+            self.family,
         )
 
 

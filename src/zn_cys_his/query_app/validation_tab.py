@@ -133,7 +133,11 @@ def load_tsne(dataset: str, approach: str) -> pd.DataFrame:
     emb = pd.read_csv(VALIDATION_DIR / dataset / approach / "embeddings.csv",
                       usecols=lambda c: c in ("id", "tsne1", "tsne2"))
     lab = load_labels(dataset, approach)
-    keep = ["id", "cluster"] + (["cluster_color"] if "cluster_color" in lab.columns else [])
+    keep = ["id", "cluster"]
+    if "cluster_color" in lab.columns:
+        keep.append("cluster_color")
+    if "family" in lab.columns:
+        keep.append("family")
     merged = emb.merge(lab[keep], on="id", how="inner")
     merged["cluster"] = merged["cluster"].astype(int)
     return merged
@@ -178,6 +182,40 @@ def tsne_figure(tsne_df: pd.DataFrame, color_map: dict[int, str], focus) -> go.F
         height=560, margin=dict(l=10, r=10, t=30, b=10),
         legend=dict(title="cluster", itemsizing="constant", font=dict(size=10)),
         xaxis_title="t-SNE 1", yaxis_title="t-SNE 2", dragmode="select",
+    )
+    return fig
+
+
+def family_color_map(tsne_df: pd.DataFrame) -> dict[str, str]:
+    """Stable color per ligand family, most-common first (blanks -> 'none')."""
+    fams = (tsne_df["family"].fillna("").astype(str).str.strip()
+            .replace("", "none"))
+    order = [f for f, _ in Counter(fams).most_common()]
+    return {f: _FALLBACK_PALETTE[i % len(_FALLBACK_PALETTE)] for i, f in enumerate(order)}
+
+
+def tsne_family_figure(tsne_df: pd.DataFrame, fam_colors: dict[str, str]) -> go.Figure:
+    """Scatter of frozen t-SNE coords, one legend entry per ligand family.
+
+    This is the 'color by ligand' view: it shows whether the geometry-driven
+    clusters line up with chemical ligand identity (they largely do not for heme —
+    which is the point of being able to look).
+    """
+    fams = (tsne_df["family"].fillna("").astype(str).str.strip().replace("", "none"))
+    fig = go.Figure()
+    for f in fam_colors:
+        d = tsne_df[fams == f]
+        if d.empty:
+            continue
+        fig.add_trace(go.Scattergl(
+            x=d["tsne1"], y=d["tsne2"], mode="markers", name=f,
+            marker=dict(color=fam_colors[f], size=7, opacity=0.85, line=dict(width=0)),
+            hovertemplate=f"{f}<extra></extra>",
+        ))
+    fig.update_layout(
+        height=560, margin=dict(l=10, r=10, t=30, b=10),
+        legend=dict(title="ligand", itemsizing="constant", font=dict(size=10)),
+        xaxis_title="t-SNE 1", yaxis_title="t-SNE 2",
     )
     return fig
 
@@ -352,22 +390,37 @@ def render() -> None:
     st.selectbox("Focus cluster", options, index=idx,
                  key=f"sb_{focus_key}", on_change=_on_focus_change)
 
+    # "Color by ligand" is offered when the dataset carries a family label
+    # (e.g. heme axial/distal ligand). It shows whether the geometry-driven
+    # clusters coincide with chemical ligand identity.
+    has_family_col = ("family" in tsne_df.columns
+                      and tsne_df["family"].astype(str).str.strip().any())
+    color_by = "Cluster"
+    if has_family_col:
+        color_by = st.radio("Color t-SNE by", ["Cluster", "Ligand"], horizontal=True,
+                            key=f"val_colorby_{dataset}_{approach}")
+
     left, right = st.columns([3, 2])
     with left:
-        event = st.plotly_chart(
-            tsne_figure(tsne_df, color_map, st.session_state[focus_key]),
-            key=f"tsne_{dataset}_{approach}", on_select="rerun",
-            selection_mode=("points", "box", "lasso"), use_container_width=True,
-        )
-        # Reconcile a NEW box/lasso selection into focus (guarded by signature so a
-        # stale selection doesn't fight the selectbox on unrelated reruns).
-        picked = _selected_cluster(event)
-        if picked is not None:
-            new_focus, sig = picked
-            if sig != st.session_state.get(sig_key) and new_focus != st.session_state[focus_key]:
-                st.session_state[sig_key] = sig
-                st.session_state[focus_key] = new_focus
-                st.rerun()
+        if color_by == "Ligand":
+            # Ligand view is a read-only overlay; cluster focus still drives the panels.
+            st.plotly_chart(tsne_family_figure(tsne_df, family_color_map(tsne_df)),
+                            key=f"tsnefam_{dataset}_{approach}", use_container_width=True)
+        else:
+            event = st.plotly_chart(
+                tsne_figure(tsne_df, color_map, st.session_state[focus_key]),
+                key=f"tsne_{dataset}_{approach}", on_select="rerun",
+                selection_mode=("points", "box", "lasso"), use_container_width=True,
+            )
+            # Reconcile a NEW box/lasso selection into focus (guarded by signature so a
+            # stale selection doesn't fight the selectbox on unrelated reruns).
+            picked = _selected_cluster(event)
+            if picked is not None:
+                new_focus, sig = picked
+                if sig != st.session_state.get(sig_key) and new_focus != st.session_state[focus_key]:
+                    st.session_state[sig_key] = sig
+                    st.session_state[focus_key] = new_focus
+                    st.rerun()
 
     focus = st.session_state[focus_key]
     sub = labels_df if focus == "All" else labels_df[labels_df["cluster"] == focus]
