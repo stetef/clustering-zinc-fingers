@@ -59,10 +59,13 @@ def _bfactors_for(raw: dict, pdb_atoms: list[dict], center_name: str,
     if not pdb_atoms:
         return "", ""
     pxyz = np.array([a["xyz"] for a in pdb_atoms])
+    # Map XYZ coords back to the source-PDB frame (extraction subtracts CENTROID).
+    offset = raw.get("centroid")
+    coords = raw["coords"] + offset if offset is not None else raw["coords"]
     cn = center_name.upper()
     fe_b = None
     others: list[float] = []
-    for c, nm, el in zip(raw["coords"], raw["names"], raw["elements"]):
+    for c, nm, el in zip(coords, raw["names"], raw["elements"]):
         d = np.linalg.norm(pxyz - c, axis=1)
         j = int(np.argmin(d))
         if d[j] > tol:

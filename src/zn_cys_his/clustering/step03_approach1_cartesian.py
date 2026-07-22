@@ -279,8 +279,10 @@ def run(
             out_dir, [s.id for s in aligned], best["labels"], family_by_id
         )
 
-    # Save R₀ identity
+    # Save R₀ identity + the profile used (the app reads profile.txt to pick the
+    # right family-label explanation and metric docs per dataset).
     (out_dir / "r0_id.txt").write_text(R0.id + "\n", encoding="utf-8")
+    (out_dir / "profile.txt").write_text(profile.name + "\n", encoding="utf-8")
 
     # Write aligned XYZ (for approach 2 to consume)
     aligned_dir = out_dir / "aligned_xyz"

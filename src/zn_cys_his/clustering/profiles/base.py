@@ -187,3 +187,8 @@ class StructureProfile:
     # Optional stats computer: compute_stats(structures, pdb_dir, fetch) -> dict
     # {id: {column: value}} for the metric columns above.  None => no stats.
     compute_stats: Optional[Callable] = None
+    # Markdown explaining this profile's categorical `family` label, shown in the
+    # app's "What do these metrics mean?" panel.  Profile-specific because a
+    # family means something different per chemistry (Cys/His motif vs heme ligand
+    # set).  Empty => the app falls back to a generic description.
+    family_doc: str = ""

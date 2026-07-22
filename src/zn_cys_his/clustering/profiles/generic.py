@@ -22,12 +22,15 @@ position, which assumes a consistent atom order across files.
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Callable, Optional
 
 import numpy as np
 
 from .base import GenericStructure, Matcher, StructureProfile
+
+_CENTROID_RE = re.compile(r"CENTROID=\(([^)]+)\)")
 
 
 # ---------------------------------------------------------------------------
@@ -53,6 +56,15 @@ def read_raw_xyz(path: Path, include_h: bool = False) -> Optional[dict]:
         return None
     if len(lines) < 2:
         return None
+
+    # Extraction may recenter coords by subtracting a CENTROID (in the header);
+    # capture it so B-factor/name matching can map back to the source PDB frame.
+    centroid = None
+    if len(lines) >= 2 and (m := _CENTROID_RE.search(lines[1])):
+        try:
+            centroid = np.array([float(x) for x in m.group(1).split(",")])
+        except ValueError:
+            centroid = None
 
     names: list[str] = []
     elements: list[str] = []
@@ -88,7 +100,8 @@ def read_raw_xyz(path: Path, include_h: bool = False) -> Optional[dict]:
     if not coords:
         return None
     return {"id": path.stem, "names": names, "elements": elements,
-            "coords": np.array(coords), "res_names": res_names, "tagged": tagged}
+            "coords": np.array(coords), "res_names": res_names,
+            "tagged": tagged, "centroid": centroid}
 
 
 def compute_family(raw: dict, center_name: Optional[str],
@@ -300,6 +313,12 @@ def write_generic_xyz(structure: GenericStructure, path: Path) -> None:
 # The profile
 # ---------------------------------------------------------------------------
 
+_FAMILY_DOC = (
+    "The set of residue names present in each structure's extracted environment "
+    "(joined by `+`). Clusters are built from geometry, so a family may span several."
+)
+
+
 def make_profile(pdb_dir: Optional[Path] = None,
                  fetch_pdbs: bool = False) -> StructureProfile:
     return StructureProfile(
@@ -308,6 +327,7 @@ def make_profile(pdb_dir: Optional[Path] = None,
         build_matcher=make_build_matcher(center_name=None),
         write_xyz=write_generic_xyz,
         has_metrics=False,
+        family_doc=_FAMILY_DOC,
     )
 
 

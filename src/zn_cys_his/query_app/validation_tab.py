@@ -102,17 +102,14 @@ METRIC_DOCS: list[tuple[str, str]] = [
      "Mean B-factor over **every heavy atom in the extracted cluster except the Fe** — the "
      "porphyrin, the axial/distal ligands, and any pocket residues. A coarse measure of local "
      "disorder / resolution around the site."),
-    ("Family",
-     "A compact code for the **coordinating motif** — the sequence order of the four ligand "
-     "residues and the secondary structure they sit in — in two parts split by `-`:\n\n"
-     "- **Residue order & spacing** (before the `-`): one letter per ligand along the sequence — "
-     "**C** = Cys, **H** = His — with `x`*n* giving the number of residues *between* consecutive "
-     "ligands. Ligands on separate chains are split by an extra `-`.\n"
-     "- **Secondary structure** (after the `-`): one letter per residue, same order — "
-     "**H** = α-helix, **S** = β-sheet, **L** = loop (irregular).\n\n"
-     "Example: `Cx5Hx65Cx1C-HHLL` → Cys, 5-residue gap, His, 65-residue gap, Cys, 1-residue gap, "
-     "Cys; those four residues sit in helix, helix, loop, loop."),
+    # NOTE: the "Family" explanation is profile-specific and comes from the
+    # structure profile (see family_doc_for), not this static list.
 ]
+
+# Fallback family description when a dataset has no profile marker / the profile
+# defines none.
+_FALLBACK_FAMILY_DOC = ("The categorical grouping label for each structure "
+                        "(e.g. its ligand/motif composition).")
 
 _GRAY = "#cccccc"
 _FALLBACK_PALETTE = [
@@ -130,6 +127,32 @@ def available_datasets() -> list[str]:
     if _DATASET_ALLOW:
         names = [n for n in names if n in _DATASET_ALLOW]
     return names
+
+
+def profile_name_for(dataset: str, approach: str) -> str:
+    """Profile that produced this dataset (from the profile.txt marker).
+
+    Defaults to 'zn_cys_his' when absent, matching the original datasets that
+    predate the marker.
+    """
+    marker = VALIDATION_DIR / dataset / approach / "profile.txt"
+    if marker.is_file():
+        name = marker.read_text().strip()
+        if name:
+            return name
+    return "zn_cys_his"
+
+
+def family_doc_for(dataset: str, approach: str) -> str:
+    """Markdown explaining the `family` label for this dataset's profile."""
+    try:
+        from zn_cys_his.clustering.profiles import get_profile
+        doc = get_profile(profile_name_for(dataset, approach)).family_doc
+        if doc:
+            return doc
+    except Exception:
+        pass
+    return _FALLBACK_FAMILY_DOC
 
 
 def approaches_for(dataset: str) -> list[str]:
@@ -402,13 +425,13 @@ def render() -> None:
                f"(k={len(clusters)}). Pick a cluster below or box/lasso-select points "
                "on the t-SNE to focus it; every panel updates.")
 
-    # Only document the metrics this dataset actually has (labels of present
-    # numeric columns, plus Family when present) — so heme doesn't show Zn
-    # geometry docs and vice versa.
+    # Only document the metrics this dataset actually has — so heme doesn't show
+    # Zn geometry docs and vice versa.  The Family entry is profile-specific and
+    # comes from the structure profile.
     present_labels = {lbl for col, lbl in NUMERIC_METRICS if col in labels_df.columns}
-    if "family" in labels_df.columns and labels_df["family"].astype(str).str.strip().any():
-        present_labels.add("Family")
     relevant_docs = [(lbl, desc) for lbl, desc in METRIC_DOCS if lbl in present_labels]
+    if "family" in labels_df.columns and labels_df["family"].astype(str).str.strip().any():
+        relevant_docs.append(("Family", family_doc_for(dataset, approach)))
     if relevant_docs:
         with st.expander("📖 What do these metrics mean?"):
             for label, desc in relevant_docs:

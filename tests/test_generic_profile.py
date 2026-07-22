@@ -202,6 +202,33 @@ def test_heme_stats_from_pdb(tmp_path: Path) -> None:
     assert row["family"] == "HIS"           # non-macrocycle residue
 
 
+def test_heme_stats_recentered_xyz(tmp_path: Path) -> None:
+    """Coords recentered by a header CENTROID are mapped back to the PDB frame."""
+    from zn_cys_his.clustering.profiles.heme_stats import make_compute_stats
+
+    xyz = tmp_path / "xyz"; xyz.mkdir()
+    pdb = tmp_path / "pdb"; pdb.mkdir()
+    # PDB atoms in the crystal frame (centroid ~ (100, 100, 100)).
+    (pdb / "1abc.pdb").write_text(
+        "HETATM    1 FE   HEM A   1     100.000 100.000 100.000  1.00 10.00          FE\n"
+        "HETATM    2 NA   HEM A   1     102.000 100.000 100.000  1.00 20.00           N\n"
+        "ATOM      3 NE2  HIS A   2     100.000 100.000 102.100  1.00 30.00           N\n"
+    )
+    # XYZ recentered by subtracting CENTROID=(100,100,100) -> coords near origin.
+    (xyz / "1abc_h.xyz").write_text(
+        "3\nPDB=1abc TARGET=FE CENTROID=(100.000,100.000,100.000)\n"
+        "Fe 0.000 0.000 0.000  # RES=HEM RESSEQ=1 ATOM=FE\n"
+        "N  2.000 0.000 0.000  # RES=HEM RESSEQ=1 ATOM=NA\n"
+        "N  0.000 0.000 2.100  # RES=HIS RESSEQ=2 ATOM=NE2\n"
+    )
+    compute = make_compute_stats("FE", macrocycle={"HEM"}, pdb_dir=pdb, fetch=False)
+    row = next(__import__("csv").DictReader(
+        compute(xyz, "*.xyz", tmp_path / "stats.csv").open()))
+    # Without the centroid offset these would be blank (atoms ~170 A off).
+    assert row["fe_bfactor"] == "10.000"
+    assert row["avg_bfactor"] == "25.000"
+
+
 def test_minimal_report_written(tmp_path: Path) -> None:
     """build_minimal_report emits a self-contained HTML embedding available PNGs."""
     from zn_cys_his.clustering.step06_validate_clusters import build_minimal_report

@@ -97,10 +97,13 @@ def back_derive(
     if not pdb_atoms:
         return None
     pdb_xyz = np.array([a["xyz"] for a in pdb_atoms])
+    # Map back to the source-PDB frame if the extraction recentered by a CENTROID.
+    offset = raw.get("centroid")
+    coords = raw["coords"] + offset if offset is not None else raw["coords"]
     names: list[str] = []
     res_names: list[str] = []
     matched = 0
-    for c in raw["coords"]:
+    for c in coords:
         d = np.linalg.norm(pdb_xyz - c, axis=1)
         j = int(np.argmin(d))
         if d[j] <= tol:

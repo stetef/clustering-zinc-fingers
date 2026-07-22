@@ -69,9 +69,9 @@ def _discover_datasets() -> dict[str, Path]:
     return found
 
 # CSVs to copy for each approach. embeddings + labels are required (an approach
-# missing either is skipped); the summary is optional.
+# missing either is skipped); the summary + profile marker are optional.
 REQUIRED = ("kmeans_labels_with_stats.csv", "embeddings.csv")
-OPTIONAL = ("kmeans_cluster_stats_summary.csv",)
+OPTIONAL = ("kmeans_cluster_stats_summary.csv", "profile.txt")
 
 
 def _has_tsne(embeddings_csv: Path) -> bool:

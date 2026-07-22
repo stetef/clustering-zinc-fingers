@@ -25,10 +25,25 @@ def _build_matcher(structures: list) -> None:
     return None
 
 
+_FAMILY_DOC = (
+    "A compact code for the **coordinating motif** — the sequence order of the four "
+    "ligand residues and the secondary structure they sit in — in two parts split by "
+    "`-`:\n\n"
+    "- **Residue order & spacing** (before the `-`): one letter per ligand along the "
+    "sequence — **C** = Cys, **H** = His — with `x`*n* giving the number of residues "
+    "*between* consecutive ligands. Ligands on separate chains are split by an extra "
+    "`-`.\n"
+    "- **Secondary structure** (after the `-`): one letter per residue, same order — "
+    "**H** = α-helix, **S** = β-sheet, **L** = loop (irregular).\n\n"
+    "Example: `Cx5Hx65Cx1C-HHLL` → Cys, 5-residue gap, His, 65-residue gap, Cys, "
+    "1-residue gap, Cys; those four residues sit in helix, helix, loop, loop."
+)
+
 PROFILE = StructureProfile(
     name="zn_cys_his",
     gather=_gather,
     build_matcher=_build_matcher,
     write_xyz=write_structure_xyz,
     has_metrics=True,
+    family_doc=_FAMILY_DOC,
 )

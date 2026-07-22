@@ -165,6 +165,19 @@ def _build_matcher(structures: list) -> Optional[Matcher]:
     return Matcher(perms, structures[0].center_index)
 
 
+_FAMILY_DOC = (
+    "The set of **non-porphyrin residues** in the extracted pocket, joined by `+` — the "
+    "proximal ligand, any axial/distal ligand, and any nearby pocket residues, i.e. "
+    "everything within the extraction cutoff of the Fe **except the heme macrocycle** "
+    "(HEM/HEC/…) itself.\n\n"
+    "Examples: `HIS` (His-ligated, 5-coordinate, empty distal), `HIS+NO` (NO bound), "
+    "`HIS+OXY` (O₂), `CMO+HIS` (CO), `CYS` (Cys-ligated, e.g. P450), `ARG+HIS` "
+    "(Arg in the pocket).\n\n"
+    "Clusters are built from **geometry**, not ligand chemistry, so a family typically "
+    "spans several clusters — color the t-SNE by ligand to see how the two relate."
+)
+
+
 def make_profile(pdb_dir=None, fetch_pdbs: bool = False) -> StructureProfile:
     from .pdb_tags import MACROCYCLE_RES
     from .heme_stats import METRICS, make_compute_stats
@@ -180,6 +193,7 @@ def make_profile(pdb_dir=None, fetch_pdbs: bool = False) -> StructureProfile:
         metrics=METRICS,
         compute_stats=make_compute_stats(_CENTER, MACROCYCLE_RES,
                                          pdb_dir=pdb_dir, fetch=fetch_pdbs),
+        family_doc=_FAMILY_DOC,
     )
 
 
