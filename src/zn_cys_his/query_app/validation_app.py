@@ -35,7 +35,7 @@ _title = "Cluster validation" + (f" — {_datasets}" if _datasets else "")
 
 st.set_page_config(page_title=_title, layout="wide")
 st.title(_title)
-st.caption("Interactive t-SNE + per-cluster metric/ligand distributions. "
+st.caption("Interactive t-SNE + per-cluster metric/family distributions. "
            "Reads validation_data/ CSVs; no database required.")
 
 validation_tab.render()

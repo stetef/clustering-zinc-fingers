@@ -16,6 +16,12 @@ Query clustered Zn-site structures across the **3cys1his**, **4cys**, and
 - `metadata_cache.json` — cached RCSB responses so rebuilds are fast/offline.
 - `csv/` — copies of the three source CSVs (`3cys1his.csv`, `4cys.csv`,
   `2cys2his.csv`).
+- `build_motif_data.py` / `motifs.csv` — distils the 3Cys1His BLAST/PROSITE
+  workbook (`blast-output/3cys1his-large/3Cys1His_pdb_motif_and_enzyme.xlsx`,
+  `overview` sheet) into a small per-PDB table (consensus enzyme name + top
+  motifs), keyed by lowercase `pdb_id`. Needs `openpyxl` to read the `.xlsx`;
+  the app itself only reads the CSV. Powers the **Consensus name / Motifs**
+  columns in the Unique PDBs tab and the **color-by-motif** view in Validation.
 
 ## Rebuild the database
 ```bash
@@ -36,7 +42,19 @@ uv run streamlit run src/zn_cys_his/query_app/app.py
   range (mean or individual χ angles), and restrict to published entries.
 - **Files** tab: every matching structure file (download as CSV).
 - **Unique PDBs** tab: deduplicated PDB list (files can share a PDB id) with
-  clickable `rcsb.org/structure/<code>` links plus publication metadata
+  clickable `rcsb.org/structure/<code>` links, the BLAST consensus name +
+  PROSITE motifs (before the title), plus publication metadata
   (download as CSV).
+- **Validation** tab: color the t-SNE by cluster, family, motif (pick a single
+  motif to highlight every PDB carrying it), or enzyme (BLAST consensus name,
+  falling back to the paper title). The **Cluster ↔ labels** sub-tab quantifies
+  how well the geometry clusters agree with those chemical labels:
+  - pairwise **adjusted mutual information** (AMI) among cluster / family / motif
+    / enzyme, as a heatmap;
+  - **homogeneity / completeness / V-measure** of each label vs the clustering
+    (label = ground truth, cluster id = prediction);
+  - a per-cluster **composition breakdown** — pick a focus cluster to see the
+    enzymes (or family/motif) that make it up, in descending percentage order,
+    so the outlier members of a cluster are easy to spot.
 
 Original `.pdb` files live in each config's `pdb-files/`.

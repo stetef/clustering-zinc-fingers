@@ -33,6 +33,12 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 from plotly.subplots import make_subplots
+from sklearn.metrics import (
+    adjusted_mutual_info_score,
+    homogeneity_completeness_v_measure,
+)
+
+import motif_data  # sibling module (streamlit adds the app dir to sys.path)
 
 HERE = Path(__file__).resolve().parent
 # Data location is overridable so a local copy can point at a different output
@@ -230,7 +236,7 @@ def tsne_figure(tsne_df: pd.DataFrame, color_map: dict[int, str], focus) -> go.F
 
 
 def family_color_map(tsne_df: pd.DataFrame) -> dict[str, str]:
-    """Stable color per ligand family, most-common first (blanks -> 'none')."""
+    """Stable color per family, most-common first (blanks -> 'none')."""
     fams = (tsne_df["family"].fillna("").astype(str).str.strip()
             .replace("", "none"))
     order = [f for f, _ in Counter(fams).most_common()]
@@ -238,10 +244,10 @@ def family_color_map(tsne_df: pd.DataFrame) -> dict[str, str]:
 
 
 def tsne_family_figure(tsne_df: pd.DataFrame, fam_colors: dict[str, str]) -> go.Figure:
-    """Scatter of frozen t-SNE coords, one legend entry per ligand family.
+    """Scatter of frozen t-SNE coords, one legend entry per family.
 
-    This is the 'color by ligand' view: it shows whether the geometry-driven
-    clusters line up with chemical ligand identity (they largely do not for heme —
+    This is the 'color by family' view: it shows whether the geometry-driven
+    clusters line up with chemical family identity (they largely do not for heme —
     which is the point of being able to look).
     """
     fams = (tsne_df["family"].fillna("").astype(str).str.strip().replace("", "none"))
@@ -257,10 +263,224 @@ def tsne_family_figure(tsne_df: pd.DataFrame, fam_colors: dict[str, str]) -> go.
         ))
     fig.update_layout(
         height=560, margin=dict(l=10, r=10, t=30, b=10),
-        legend=dict(title="ligand", itemsizing="constant", font=dict(size=10)),
+        legend=dict(title="family", itemsizing="constant", font=dict(size=10)),
         xaxis_title="t-SNE 1", yaxis_title="t-SNE 2",
     )
     return fig
+
+
+# --------------------------------------------------------------------------- motifs
+def motif_tsne(tsne_df: pd.DataFrame, motifs_df: pd.DataFrame) -> pd.DataFrame:
+    """t-SNE points joined to their PDB's PROSITE motif cells (motif1..motif3).
+
+    The structure id's leading token is the 4-char pdb code (e.g. ``3M5L_1`` ->
+    ``3m5l``); motifs are keyed by that lowercase code.
+    """
+    df = tsne_df.copy()
+    df["pdb_id"] = df["id"].astype(str).str.split("_").str[0].str.lower()
+    df = df.merge(motifs_df[["pdb_id", "motif1", "motif2", "motif3"]],
+                  on="pdb_id", how="left")
+    return df
+
+
+def motif_option_list(motif_df: pd.DataFrame) -> list[str]:
+    """All distinct motifs present, ordered by how many points carry them."""
+    counts: Counter = Counter()
+    for _, row in motif_df.iterrows():
+        for m in motif_data.all_motifs(row):
+            counts[m] += 1
+    return [m for m, _ in counts.most_common()]
+
+
+def tsne_motif_figure(motif_df: pd.DataFrame, selected: str | None) -> go.Figure:
+    """Color the t-SNE by PROSITE motif.
+
+    ``selected is None`` -> color every point by its **first** (most-prevalent)
+    motif, one legend entry per first-motif. Otherwise highlight only the points
+    whose motif set *contains* ``selected`` (even when it is not their first),
+    dimming the rest to gray context.
+    """
+    fig = go.Figure()
+    if selected is None:
+        firsts = motif_df.apply(motif_data.first_motif, axis=1).replace("", "none")
+        order = [m for m, _ in Counter(firsts).most_common()]
+        colors = {m: _FALLBACK_PALETTE[i % len(_FALLBACK_PALETTE)]
+                  for i, m in enumerate(order)}
+        if "none" in colors:
+            colors["none"] = _GRAY
+        for m in order:
+            d = motif_df[firsts == m]
+            if d.empty:
+                continue
+            fig.add_trace(go.Scattergl(
+                x=d["tsne1"], y=d["tsne2"], mode="markers", name=m,
+                marker=dict(color=colors[m], size=7, opacity=0.85, line=dict(width=0)),
+                hovertemplate=f"{m}<extra></extra>",
+            ))
+    else:
+        has = motif_df.apply(lambda r: selected in motif_data.all_motifs(r), axis=1)
+        other = motif_df[~has]
+        if not other.empty:
+            fig.add_trace(go.Scattergl(
+                x=other["tsne1"], y=other["tsne2"], mode="markers", name="other",
+                marker=dict(color=_GRAY, size=5, opacity=0.15, line=dict(width=0)),
+                hovertemplate="other<extra></extra>",
+            ))
+        hit = motif_df[has]
+        if not hit.empty:
+            fig.add_trace(go.Scattergl(
+                x=hit["tsne1"], y=hit["tsne2"], mode="markers", name=selected,
+                marker=dict(color=_FALLBACK_PALETTE[0], size=8, opacity=0.9,
+                            line=dict(width=0)),
+                hovertemplate=f"{selected}<extra></extra>",
+            ))
+    fig.update_layout(
+        height=560, margin=dict(l=10, r=10, t=30, b=10),
+        legend=dict(title="motif", itemsizing="constant", font=dict(size=10)),
+        xaxis_title="t-SNE 1", yaxis_title="t-SNE 2",
+    )
+    return fig
+
+
+# -------------------------------------------------------------------------- enzyme
+def enzyme_tsne(tsne_df: pd.DataFrame, labels: dict[str, str]) -> pd.DataFrame:
+    """t-SNE points labelled by enzyme (consensus name > paper title > 'none')."""
+    df = tsne_df.copy()
+    df["pdb_id"] = df["id"].astype(str).str.split("_").str[0].str.lower()
+    df["enzyme"] = df["pdb_id"].map(labels).fillna("").replace("", "none")
+    return df
+
+
+def _short(label: str, width: int = 40) -> str:
+    """Truncate a long label (paper titles) for the legend/hover."""
+    return label if len(label) <= width else label[: width - 1] + "…"
+
+
+def tsne_enzyme_figure(enz_df: pd.DataFrame) -> go.Figure:
+    """Color the t-SNE by enzyme identity, one legend entry per distinct label."""
+    cats = enz_df["enzyme"]
+    order = [c for c, _ in Counter(cats).most_common()]
+    colors = {c: _FALLBACK_PALETTE[i % len(_FALLBACK_PALETTE)]
+              for i, c in enumerate(order)}
+    if "none" in colors:
+        colors["none"] = _GRAY
+    fig = go.Figure()
+    for c in order:
+        d = enz_df[cats == c]
+        if d.empty:
+            continue
+        name = _short(c)
+        fig.add_trace(go.Scattergl(
+            x=d["tsne1"], y=d["tsne2"], mode="markers", name=name,
+            marker=dict(color=colors[c], size=7, opacity=0.85, line=dict(width=0)),
+            hovertemplate=f"{name}<extra></extra>",
+        ))
+    fig.update_layout(
+        height=560, margin=dict(l=10, r=10, t=30, b=10),
+        legend=dict(title="enzyme", itemsizing="constant", font=dict(size=10)),
+        xaxis_title="t-SNE 1", yaxis_title="t-SNE 2",
+    )
+    return fig
+
+
+# -------------------------------------------------------- cluster ↔ label agreement
+def label_frame(labels_df: pd.DataFrame, motifs_df: pd.DataFrame,
+                enzyme_labels: dict[str, str], *,
+                use_family: bool, use_motif: bool, use_enzyme: bool) -> pd.DataFrame:
+    """One row per structure with its categorical labels for the agreement metrics.
+
+    Columns: ``cluster_id`` (int, for grouping), ``Cluster`` (str), and whichever
+    of ``Family`` / ``Motif`` / ``Enzyme`` the dataset carries. A missing label
+    becomes ``"none"`` (its own category) so every structure is scored.
+    """
+    df = pd.DataFrame({"cluster_id": labels_df["cluster"].astype(int).to_numpy()})
+    df["Cluster"] = df["cluster_id"].astype(str)
+    pdb = labels_df["id"].astype(str).str.split("_").str[0].str.lower()
+    df["pdb_id"] = pdb.to_numpy()
+
+    if use_family and "family" in labels_df.columns:
+        df["Family"] = (labels_df["family"].fillna("").astype(str).str.strip()
+                        .replace("", "none").to_numpy())
+    if use_motif:
+        first = {r["pdb_id"]: (motif_data.first_motif(r) or "none")
+                 for _, r in motifs_df.iterrows()}
+        df["Motif"] = df["pdb_id"].map(first).fillna("none")
+    if use_enzyme:
+        df["Enzyme"] = df["pdb_id"].map(enzyme_labels).fillna("").replace("", "none")
+    return df
+
+
+def _label_cols(lf: pd.DataFrame) -> list[str]:
+    return [c for c in ("Family", "Motif", "Enzyme") if c in lf.columns]
+
+
+def ami_matrix(lf: pd.DataFrame) -> pd.DataFrame:
+    """Pairwise adjusted mutual information among Cluster and every label type."""
+    names = ["Cluster"] + _label_cols(lf)
+    mat = pd.DataFrame(index=names, columns=names, dtype=float)
+    for a in names:
+        for b in names:
+            mat.loc[a, b] = (1.0 if a == b
+                             else adjusted_mutual_info_score(lf[a], lf[b]))
+    return mat
+
+
+def vmeasure_table(lf: pd.DataFrame) -> pd.DataFrame:
+    """Homogeneity / completeness / V-measure of each label vs the clustering.
+
+    Each label type is the ground truth (``labels_true``) and the cluster id is
+    the prediction (``labels_pred``), so homogeneity asks "is each cluster pure in
+    this label?" and completeness "is each label kept in one cluster?".
+    """
+    rows = []
+    for name in _label_cols(lf):
+        h, c, v = homogeneity_completeness_v_measure(lf[name], lf["Cluster"])
+        rows.append({"Label": name, "Homogeneity": h, "Completeness": c,
+                     "V-measure": v, "AMI vs cluster": mat_ami(lf, name)})
+    return pd.DataFrame(rows)
+
+
+def mat_ami(lf: pd.DataFrame, name: str) -> float:
+    return adjusted_mutual_info_score(lf[name], lf["Cluster"])
+
+
+def ami_heatmap(mat: pd.DataFrame) -> go.Figure:
+    names = list(mat.index)
+    z = mat.to_numpy(dtype=float)
+    fig = go.Figure(go.Heatmap(
+        z=z, x=names, y=names, zmin=0, zmax=1, colorscale="Viridis",
+        colorbar=dict(title="AMI"),
+        text=[[f"{v:.2f}" for v in row] for row in z],
+        texttemplate="%{text}", hovertemplate="%{y} vs %{x}: %{z:.3f}<extra></extra>",
+    ))
+    fig.update_layout(height=360, margin=dict(l=10, r=10, t=30, b=10),
+                      yaxis=dict(autorange="reversed"))
+    return fig
+
+
+def cluster_label_breakdown(lf: pd.DataFrame, cluster_id: int, label_col: str) -> pd.DataFrame:
+    """Percentage each label makes up of one cluster, largest first."""
+    sub = lf[lf["cluster_id"] == cluster_id]
+    n = len(sub)
+    vc = sub[label_col].value_counts()
+    return pd.DataFrame({
+        label_col: vc.index,
+        "count": vc.to_numpy(),
+        "percent": (100 * vc / n).to_numpy() if n else vc.to_numpy(),
+    })
+
+
+def cluster_top_labels(lf: pd.DataFrame, label_col: str) -> pd.DataFrame:
+    """One row per cluster: its dominant label + that label's share and diversity."""
+    rows = []
+    for cid, sub in lf.groupby("cluster_id"):
+        n = len(sub)
+        vc = sub[label_col].value_counts()
+        rows.append({"cluster": int(cid), "n": n,
+                     f"top {label_col.lower()}": vc.index[0],
+                     "top %": 100 * vc.iloc[0] / n,
+                     "# distinct": int(sub[label_col].nunique())})
+    return pd.DataFrame(rows).sort_values("cluster").reset_index(drop=True)
 
 
 def _hist_bins(values: np.ndarray) -> np.ndarray:
@@ -448,22 +668,56 @@ def render() -> None:
     st.selectbox("Focus cluster", options, index=idx,
                  key=f"sb_{focus_key}", on_change=_on_focus_change)
 
-    # "Color by ligand" is offered when the dataset carries a family label
+    # "Color by family" is offered when the dataset carries a family label
     # (e.g. heme axial/distal ligand). It shows whether the geometry-driven
-    # clusters coincide with chemical ligand identity.
+    # clusters coincide with chemical family identity. "Color by motif" is offered
+    # when the structures have PROSITE motif data (3Cys1His), and can highlight a
+    # single motif across the map.
     has_family_col = ("family" in tsne_df.columns
                       and tsne_df["family"].astype(str).str.strip().any())
-    color_by = "Cluster"
+    motifs_raw = motif_data.load_motifs()
+    motif_df = motif_tsne(tsne_df, motifs_raw)
+    motif_names = motif_option_list(motif_df)
+    has_motif = bool(motif_names)
+    enzyme_labels = motif_data.enzyme_label_map()
+    enz_df = enzyme_tsne(tsne_df, enzyme_labels)
+    has_enzyme = bool((enz_df["enzyme"] != "none").any())
+
+    palette_opts = ["Cluster"]
     if has_family_col:
-        color_by = st.radio("Color t-SNE by", ["Cluster", "Ligand"], horizontal=True,
+        palette_opts.append("Family")
+    if has_motif:
+        palette_opts.append("Motif")
+    if has_enzyme:
+        palette_opts.append("Enzyme")
+    color_by = "Cluster"
+    if len(palette_opts) > 1:
+        color_by = st.radio("Color t-SNE by", palette_opts, horizontal=True,
                             key=f"val_colorby_{dataset}_{approach}")
+
+    selected_motif: str | None = None
+    if color_by == "Motif":
+        motif_choices = ["All (first motif per PDB)"] + motif_names
+        pick = st.selectbox(
+            "Motif", motif_choices, key=f"val_motifpick_{dataset}_{approach}",
+            help="PDBs with several motifs show their first motif here; pick a "
+                 "specific motif to highlight every PDB that carries it.")
+        selected_motif = None if pick.startswith("All") else pick
 
     left, right = st.columns([3, 2])
     with left:
-        if color_by == "Ligand":
-            # Ligand view is a read-only overlay; cluster focus still drives the panels.
+        if color_by == "Family":
+            # Family view is a read-only overlay; cluster focus still drives the panels.
             st.plotly_chart(tsne_family_figure(tsne_df, family_color_map(tsne_df)),
                             key=f"tsnefam_{dataset}_{approach}", use_container_width=True)
+        elif color_by == "Motif":
+            # Motif view is a read-only overlay too; cluster focus still drives panels.
+            st.plotly_chart(tsne_motif_figure(motif_df, selected_motif),
+                            key=f"tsnemotif_{dataset}_{approach}", use_container_width=True)
+        elif color_by == "Enzyme":
+            # Enzyme view is a read-only overlay too; cluster focus still drives panels.
+            st.plotly_chart(tsne_enzyme_figure(enz_df),
+                            key=f"tsneenz_{dataset}_{approach}", use_container_width=True)
         else:
             event = st.plotly_chart(
                 tsne_figure(tsne_df, color_map, st.session_state[focus_key]),
@@ -506,7 +760,8 @@ def render() -> None:
     has_family = ("family" in labels_df.columns
                   and labels_df["family"].astype(str).str.strip().any())
 
-    dist_tab, overlay_tab = st.tabs(["Per-cluster distributions", "Metric overlays"])
+    dist_tab, overlay_tab, agree_tab = st.tabs(
+        ["Per-cluster distributions", "Metric overlays", "Cluster ↔ labels"])
     with dist_tab:
         if not metric_opts and not has_family:
             st.info("This dataset has no per-structure metrics — the t-SNE embedding above "
@@ -526,3 +781,67 @@ def render() -> None:
                                key=f"val_overlay_{dataset}_{approach}")
             st.plotly_chart(overlay_figure(labels_df, sel[0], color_map),
                             use_container_width=True)
+
+    with agree_tab:
+        if not (has_family_col or has_motif or has_enzyme):
+            st.info("This dataset has no family/motif/enzyme labels to compare "
+                    "against the clustering.")
+        else:
+            lf = label_frame(labels_df, motifs_raw, enzyme_labels,
+                             use_family=has_family_col, use_motif=has_motif,
+                             use_enzyme=has_enzyme)
+
+            st.markdown("**Do the geometry-driven clusters agree with the "
+                        "chemical labels?**")
+            st.caption("Adjusted mutual information (AMI) is 0 for a chance "
+                       "labelling and 1 for identical partitions; it is symmetric "
+                       "and corrects for the number of groups.")
+            m1, m2 = st.columns([1, 1])
+            with m1:
+                st.plotly_chart(ami_heatmap(ami_matrix(lf)),
+                                key=f"ami_{dataset}_{approach}",
+                                use_container_width=True)
+            with m2:
+                st.markdown("**Homogeneity / completeness / V-measure**")
+                st.caption("Each label is the ground truth and the cluster id is "
+                           "the prediction. **Homogeneity** = each cluster is pure "
+                           "in that label; **completeness** = each label stays in "
+                           "one cluster; **V-measure** is their harmonic mean.")
+                vt_tbl = vmeasure_table(lf)
+                st.dataframe(
+                    vt_tbl.style.format(
+                        {c: "{:.3f}" for c in
+                         ("Homogeneity", "Completeness", "V-measure", "AMI vs cluster")}),
+                    hide_index=True, use_container_width=True)
+
+            st.markdown("---")
+            label_choices = _label_cols(lf)
+            default_idx = label_choices.index("Enzyme") if "Enzyme" in label_choices else 0
+            bl = st.selectbox("Break each cluster down by", label_choices,
+                              index=default_idx, key=f"val_break_{dataset}_{approach}")
+
+            if focus == "All":
+                st.caption("Dominant label per cluster (focus a cluster above for "
+                           "its full percentage breakdown).")
+                top = cluster_top_labels(lf, bl)
+                st.dataframe(top.style.format({"top %": "{:.1f}"}),
+                             hide_index=True, use_container_width=True)
+            else:
+                brk = cluster_label_breakdown(lf, int(focus), bl)
+                st.markdown(f"**Cluster {focus} — {bl} composition** "
+                            f"({len(brk)} distinct, {int(brk['count'].sum())} structures)")
+                st.caption("Sorted by share of the cluster, largest first — the "
+                           "tail shows the outlier labels in this cluster.")
+                st.dataframe(
+                    brk.style.format({"percent": "{:.1f}%"}),
+                    hide_index=True, use_container_width=True,
+                    column_config={
+                        "percent": st.column_config.ProgressColumn(
+                            "percent", format="%.1f%%", min_value=0.0,
+                            max_value=float(brk["percent"].max()) if len(brk) else 100.0),
+                    })
+                st.download_button(
+                    f"Download cluster {focus} {bl} breakdown CSV",
+                    brk.to_csv(index=False).encode(),
+                    file_name=f"cluster{focus}_{bl.lower()}_breakdown.csv",
+                    mime="text/csv", key=f"dl_break_{dataset}_{approach}")
