@@ -55,9 +55,27 @@ uv run streamlit run src/zn_cys_his/query_app/app.py
   clickable `rcsb.org/structure/<code>` links, the BLAST consensus name +
   PROSITE motifs (before the title), plus publication metadata
   (download as CSV).
-- **Validation** tab: color the t-SNE by cluster, family, motif (pick a single
-  motif to highlight every PDB carrying it), or enzyme (BLAST consensus name,
-  falling back to the paper title). The **Cluster ↔ labels** sub-tab quantifies
+- **Validation** tab: color the t-SNE by cluster, family, motif, or enzyme
+  (BLAST consensus name, falling back to the paper title). Motif coloring has to
+  pick one motif per point even though ~46% of these PDBs carry several (up to
+  11), so:
+  - **hover** any point for its PDB, cluster, the motif it is colored by, and
+    its complete motif list;
+  - **"All (dominant motif in scope)"** colors each PDB by whichever of *its*
+    motifs is commonest within the current scope — a box/lasso selection if you
+    make one, else the focus cluster, else the whole dataset. Narrowing the
+    scope re-labels multi-motif PDBs by what dominates *that* region (e.g. in
+    one PHD-finger region 15 of 57 points flip `ZF_PHD_2` → `ZF_PHD_1`).
+    Out-of-scope points stay as faint context; a button resets to the whole
+    dataset. Streamlit exposes only plotly *selection* events (no zoom /
+    relayout), so box-select stands in for "zoom to here";
+  - picking a **single motif** instead highlights every PDB carrying it,
+    wherever it sits in that PDB's list;
+  - only the N commonest labels get their own color (slider, default 12) — there
+    are ~80 distinct first-motifs in 4cys against a 15-color palette — and the
+    rest fold into one `other` entry.
+
+  The **Cluster ↔ labels** sub-tab quantifies
   how well the geometry clusters agree with those chemical labels:
   - pairwise **adjusted mutual information** (AMI) among cluster / family / motif
     / enzyme, as a heatmap;

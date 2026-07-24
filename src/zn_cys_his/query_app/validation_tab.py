@@ -271,73 +271,147 @@ def tsne_family_figure(tsne_df: pd.DataFrame, fam_colors: dict[str, str]) -> go.
 
 # --------------------------------------------------------------------------- motifs
 def motif_tsne(tsne_df: pd.DataFrame, motifs_df: pd.DataFrame) -> pd.DataFrame:
-    """t-SNE points joined to their PDB's PROSITE motif cells (motif1..motif3).
+    """t-SNE points joined to their PDB's PROSITE motifs.
 
     The structure id's leading token is the 4-char pdb code (e.g. ``3M5L_1`` ->
-    ``3m5l``); motifs are keyed by that lowercase code.
+    ``3m5l``); motifs are keyed by that lowercase code. ``motif_list`` holds every
+    motif the PDB carries, in workbook-prevalence order — nearly half the points
+    carry more than one (up to 11), which is what the hover box and the
+    dominant-motif coloring below are for.
     """
     df = tsne_df.copy()
     df["pdb_id"] = df["id"].astype(str).str.split("_").str[0].str.lower()
     df = df.merge(motifs_df[["pdb_id", "motif1", "motif2", "motif3"]],
                   on="pdb_id", how="left")
+    df["motif_list"] = df.apply(motif_data.all_motifs, axis=1)
     return df
 
 
 def motif_option_list(motif_df: pd.DataFrame) -> list[str]:
     """All distinct motifs present, ordered by how many points carry them."""
-    counts: Counter = Counter()
-    for _, row in motif_df.iterrows():
-        for m in motif_data.all_motifs(row):
-            counts[m] += 1
-    return [m for m, _ in counts.most_common()]
+    return [m for m, _ in motif_prevalence(motif_df).most_common()]
 
 
-def tsne_motif_figure(motif_df: pd.DataFrame, selected: str | None) -> go.Figure:
-    """Color the t-SNE by PROSITE motif.
+def motif_prevalence(motif_df: pd.DataFrame,
+                     mask: pd.Series | None = None) -> Counter:
+    """How many points carry each motif (a point counts once per motif it has).
 
-    ``selected is None`` -> color every point by its **first** (most-prevalent)
-    motif, one legend entry per first-motif. Otherwise highlight only the points
-    whose motif set *contains* ``selected`` (even when it is not their first),
-    dimming the rest to gray context.
+    ``mask`` restricts the count to a region of the map — the basis for ranking
+    motifs "within what is on screen" rather than across the whole dataset.
     """
+    lists = motif_df["motif_list"] if mask is None else motif_df.loc[mask, "motif_list"]
+    return Counter(m for lst in lists for m in lst)
+
+
+def assign_motif(motif_df: pd.DataFrame, scope: Counter, overall: Counter) -> pd.Series:
+    """Per point, the single motif to color it by: the most prevalent *in scope*.
+
+    A PDB carrying both ZF_PHD_2 and PS50014 is colored ZF_PHD_2 when that is the
+    commoner of the two in the current scope, and PS50014 when the scope narrows to
+    a region where PS50014 dominates. Ties fall back to overall prevalence, then to
+    the PDB's own motif order, so the choice is deterministic. Points with no motif
+    become ``'none'``.
+    """
+    def pick(ms: list[str]) -> str:
+        if not ms:
+            return "none"
+        return max(ms, key=lambda m: (scope.get(m, 0), overall.get(m, 0)))
+    return motif_df["motif_list"].map(pick)
+
+
+def _motif_hover(pdb: str, cluster: object, label: str, ms: list[str],
+                 per_line: int = 3) -> str:
+    """Hover text: the PDB, the motif it is colored by, and its full motif list."""
+    head = f"<b>{str(pdb).upper()}</b> · cluster {cluster}"
+    if not ms:
+        return head + "<br>no PROSITE motifs"
+    wrapped = "<br>      ".join("; ".join(ms[i:i + per_line])
+                                for i in range(0, len(ms), per_line))
+    shown = f"<br>colored by: <b>{label}</b>" if label in ms and len(ms) > 1 else ""
+    return f"{head}{shown}<br>all {len(ms)} motif{'s' if len(ms) > 1 else ''}: {wrapped}"
+
+
+def _motif_trace(d: pd.DataFrame, labels: pd.Series, name: str, color: str, *,
+                 size: int, opacity: float, rank: int) -> go.Scattergl:
+    """One motif trace; customdata carries the row position (for selections)."""
+    custom = [[int(i), _motif_hover(p, c, labels.at[i], ms)]
+              for i, p, c, ms in zip(d.index, d["pdb_id"], d["cluster"], d["motif_list"])]
+    return go.Scattergl(
+        x=d["tsne1"], y=d["tsne2"], mode="markers", name=name, legendrank=rank,
+        customdata=custom,
+        marker=dict(color=color, size=size, opacity=opacity, line=dict(width=0)),
+        hovertemplate="%{customdata[1]}<extra></extra>",
+    )
+
+
+def tsne_motif_figure(motif_df: pd.DataFrame, selected: str | None, *,
+                      scope_mask: pd.Series | None = None,
+                      max_legend: int = 12) -> go.Figure:
+    """Color the t-SNE by PROSITE motif; hover lists every motif on the point.
+
+    ``selected is None`` -> color each point by whichever of *its* motifs is most
+    prevalent inside ``scope_mask`` (the whole dataset when None). Narrowing the
+    scope to a cluster or a box/lasso region therefore re-labels every multi-motif
+    PDB by what dominates *that* region; out-of-scope points stay as faint context.
+    Only the ``max_legend`` commonest labels get a color of their own — with ~80
+    distinct motifs the rest would recycle the palette — and the remainder fold
+    into one 'other' entry.
+
+    Otherwise highlight only the points whose motif set *contains* ``selected``
+    (even when it is not their first), dimming the rest to gray context.
+    """
+    df = motif_df.reset_index(drop=True)
+    in_scope = (pd.Series(True, index=df.index) if scope_mask is None
+                else scope_mask.reset_index(drop=True).fillna(False).astype(bool))
+
     fig = go.Figure()
     if selected is None:
-        firsts = motif_df.apply(motif_data.first_motif, axis=1).replace("", "none")
-        order = [m for m, _ in Counter(firsts).most_common()]
-        colors = {m: _FALLBACK_PALETTE[i % len(_FALLBACK_PALETTE)]
-                  for i, m in enumerate(order)}
-        if "none" in colors:
-            colors["none"] = _GRAY
-        for m in order:
-            d = motif_df[firsts == m]
+        overall = motif_prevalence(df)
+        scope = motif_prevalence(df, in_scope) or overall
+        labels = assign_motif(df, scope, overall)
+        # Legend order / palette come from the *scoped* label counts, so the
+        # colors track what actually dominates the region on screen.
+        counts = Counter(labels[in_scope])
+        ranked = [m for m, _ in counts.most_common() if m != "none"]
+        shown, folded = ranked[:max_legend], ranked[max_legend:]
+
+        if not in_scope.all():
+            out = df[~in_scope]
+            fig.add_trace(_motif_trace(out, labels, "outside scope", _GRAY,
+                                       size=5, opacity=0.12, rank=990))
+        for group, name, color, rank in (
+            (df[in_scope & (labels == "none")], "none", _GRAY, 950),
+            (df[in_scope & labels.isin(folded)],
+             f"other ({len(folded)} motif{'s' if len(folded) != 1 else ''})",
+             "#9e9e9e", 900),
+        ):
+            if not group.empty:
+                fig.add_trace(_motif_trace(group, labels, name, color,
+                                           size=6, opacity=0.6, rank=rank))
+        for i, m in enumerate(shown):
+            d = df[in_scope & (labels == m)]
             if d.empty:
                 continue
-            fig.add_trace(go.Scattergl(
-                x=d["tsne1"], y=d["tsne2"], mode="markers", name=m,
-                marker=dict(color=colors[m], size=7, opacity=0.85, line=dict(width=0)),
-                hovertemplate=f"{m}<extra></extra>",
-            ))
+            fig.add_trace(_motif_trace(
+                d, labels, f"{m} ({counts[m]})",
+                _FALLBACK_PALETTE[i % len(_FALLBACK_PALETTE)],
+                size=7, opacity=0.85, rank=10 + i))
     else:
-        has = motif_df.apply(lambda r: selected in motif_data.all_motifs(r), axis=1)
-        other = motif_df[~has]
+        labels = pd.Series(selected, index=df.index)
+        has = df["motif_list"].map(lambda ms: selected in ms)
+        other = df[~has]
         if not other.empty:
-            fig.add_trace(go.Scattergl(
-                x=other["tsne1"], y=other["tsne2"], mode="markers", name="other",
-                marker=dict(color=_GRAY, size=5, opacity=0.15, line=dict(width=0)),
-                hovertemplate="other<extra></extra>",
-            ))
-        hit = motif_df[has]
+            fig.add_trace(_motif_trace(other, labels, "other", _GRAY,
+                                       size=5, opacity=0.15, rank=900))
+        hit = df[has]
         if not hit.empty:
-            fig.add_trace(go.Scattergl(
-                x=hit["tsne1"], y=hit["tsne2"], mode="markers", name=selected,
-                marker=dict(color=_FALLBACK_PALETTE[0], size=8, opacity=0.9,
-                            line=dict(width=0)),
-                hovertemplate=f"{selected}<extra></extra>",
-            ))
+            fig.add_trace(_motif_trace(hit, labels, f"{selected} ({len(hit)})",
+                                       _FALLBACK_PALETTE[0],
+                                       size=8, opacity=0.9, rank=10))
     fig.update_layout(
         height=560, margin=dict(l=10, r=10, t=30, b=10),
         legend=dict(title="motif", itemsizing="constant", font=dict(size=10)),
-        xaxis_title="t-SNE 1", yaxis_title="t-SNE 2",
+        xaxis_title="t-SNE 1", yaxis_title="t-SNE 2", dragmode="select",
     )
     return fig
 
@@ -620,6 +694,25 @@ def _selected_cluster(event):
     return Counter(clusters).most_common(1)[0][0], sig
 
 
+def _selected_rows(event):
+    """Map a motif-plot selection event to (row positions, selection signature).
+
+    The motif traces carry the row position in ``customdata[0]``, so a box/lasso
+    selection maps back to exactly the points the user dragged over — the scope the
+    motif ranking is then recomputed within. Returns None when the event carries no
+    usable selection (e.g. the user double-clicked to clear it).
+    """
+    try:
+        pts = event["selection"]["points"]
+    except (KeyError, TypeError):
+        return None
+    rows = [int(p["customdata"][0]) for p in pts if p.get("customdata")]
+    if not rows:
+        return None
+    sig = tuple(sorted((p.get("curve_number"), p.get("point_index")) for p in pts))
+    return rows, sig
+
+
 def render() -> None:
     st.subheader("Cluster validation")
     datasets = available_datasets()
@@ -696,14 +789,46 @@ def render() -> None:
         color_by = st.radio("Color t-SNE by", palette_opts, horizontal=True,
                             key=f"val_colorby_{dataset}_{approach}")
 
+    # Motif coloring: which motif a multi-motif PDB is shown as depends on what
+    # dominates the *scope* — a box/lasso region if one is selected, else the focus
+    # cluster, else the whole dataset. Streamlit exposes only plotly selection
+    # events (no zoom/relayout), so box-select stands in for "zoom to here".
+    scope_key = f"val_motifscope_{dataset}_{approach}"
+    scope_sig_key = f"val_motifscopesig_{dataset}_{approach}"
+    focus = st.session_state[focus_key]
+
     selected_motif: str | None = None
+    max_legend = 12
+    scope_mask: pd.Series | None = None
+    scope_label = ""
     if color_by == "Motif":
-        motif_choices = ["All (first motif per PDB)"] + motif_names
-        pick = st.selectbox(
+        c1, c2 = st.columns([3, 1])
+        motif_choices = ["All (dominant motif in scope)"] + motif_names
+        pick = c1.selectbox(
             "Motif", motif_choices, key=f"val_motifpick_{dataset}_{approach}",
-            help="PDBs with several motifs show their first motif here; pick a "
-                 "specific motif to highlight every PDB that carries it.")
+            help="Nearly half these PDBs carry several motifs. 'All' colors each "
+                 "one by whichever of its motifs is commonest in the current "
+                 "scope; pick a specific motif instead to highlight every PDB "
+                 "that carries it, wherever it sits in that PDB's list. Hover any "
+                 "point for its full motif list.")
         selected_motif = None if pick.startswith("All") else pick
+        max_legend = c2.slider("Legend size", 5, 30, 12,
+                               key=f"val_motiflegend_{dataset}_{approach}",
+                               help=f"{len(motif_names)} distinct motifs here — "
+                                    "the rest fold into one 'other' entry.")
+
+        rows = st.session_state.get(scope_key)
+        if selected_motif is None:
+            if rows:
+                scope_mask = pd.Series(False, index=motif_df.index)
+                valid = [r for r in rows if 0 <= r < len(motif_df)]
+                scope_mask.iloc[valid] = True
+                scope_label = f"your selection ({len(valid):,} points)"
+            elif focus != "All":
+                scope_mask = motif_df["cluster"] == focus
+                scope_label = f"cluster {focus} ({int(scope_mask.sum()):,} points)"
+            else:
+                scope_label = f"the whole dataset ({len(motif_df):,} points)"
 
     left, right = st.columns([3, 2])
     with left:
@@ -712,9 +837,34 @@ def render() -> None:
             st.plotly_chart(tsne_family_figure(tsne_df, family_color_map(tsne_df)),
                             key=f"tsnefam_{dataset}_{approach}", use_container_width=True)
         elif color_by == "Motif":
-            # Motif view is a read-only overlay too; cluster focus still drives panels.
-            st.plotly_chart(tsne_motif_figure(motif_df, selected_motif),
-                            key=f"tsnemotif_{dataset}_{approach}", use_container_width=True)
+            # Read-only w.r.t. cluster focus (that still drives the panels); a
+            # box/lasso here re-ranks the motifs within the region instead.
+            event = st.plotly_chart(
+                tsne_motif_figure(motif_df, selected_motif, scope_mask=scope_mask,
+                                  max_legend=max_legend),
+                key=f"tsnemotif_{dataset}_{approach}", on_select="rerun",
+                selection_mode=("box", "lasso"), use_container_width=True,
+            )
+            if selected_motif is None:
+                st.caption(f"Motifs ranked within **{scope_label}** · box/lasso a "
+                           "region to re-rank within it. Hover a point for its "
+                           "full motif list.")
+                picked = _selected_rows(event)
+                if picked is not None:
+                    rows, sig = picked
+                    if sig != st.session_state.get(scope_sig_key):
+                        st.session_state[scope_sig_key] = sig
+                        st.session_state[scope_key] = rows
+                        st.rerun()
+                # Explicit reset rather than acting on an empty selection: a
+                # re-render can clear the client-side selection on its own, which
+                # would otherwise drop the scope the moment it was applied. The
+                # consumed signature stays, so the stale event is not re-applied.
+                if st.session_state.get(scope_key) and st.button(
+                        "↺ Rank across the whole dataset",
+                        key=f"val_motifscopeclear_{dataset}_{approach}"):
+                    st.session_state[scope_key] = None
+                    st.rerun()
         elif color_by == "Enzyme":
             # Enzyme view is a read-only overlay too; cluster focus still drives panels.
             st.plotly_chart(tsne_enzyme_figure(enz_df),
@@ -735,7 +885,8 @@ def render() -> None:
                     st.session_state[focus_key] = new_focus
                     st.rerun()
 
-    focus = st.session_state[focus_key]
+    # (focus was read before the plots; a cluster-view selection that changes it
+    # always st.rerun()s, so it cannot have moved since.)
     sub = labels_df if focus == "All" else labels_df[labels_df["cluster"] == focus]
     focus_color = color_map.get(focus, _GRAY)
     with right:
