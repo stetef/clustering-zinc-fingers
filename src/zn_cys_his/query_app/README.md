@@ -16,12 +16,22 @@ Query clustered Zn-site structures across the **3cys1his**, **4cys**, and
 - `metadata_cache.json` — cached RCSB responses so rebuilds are fast/offline.
 - `csv/` — copies of the three source CSVs (`3cys1his.csv`, `4cys.csv`,
   `2cys2his.csv`).
-- `build_motif_data.py` / `motifs.csv` — distils the 3Cys1His BLAST/PROSITE
-  workbook (`blast-output/3cys1his-large/3Cys1His_pdb_motif_and_enzyme.xlsx`,
-  `overview` sheet) into a small per-PDB table (consensus enzyme name + top
-  motifs), keyed by lowercase `pdb_id`. Needs `openpyxl` to read the `.xlsx`;
-  the app itself only reads the CSV. Powers the **Consensus name / Motifs**
-  columns in the Unique PDBs tab and the **color-by-motif** view in Validation.
+- `build_motif_data.py` / `motifs.csv` — distils the per-system BLAST/PROSITE
+  workbooks (`blast-output/3cys1his-large/3Cys1His_pdb_motif_and_enzyme.xlsx`,
+  `blast-output/4cys-large/4Cys_pdb_motif_and_enzyme.xlsx`, `overview` sheet)
+  into a small per-PDB table (consensus enzyme name + top motifs), keyed by
+  `(dataset, lowercase pdb_id)` — each system is scanned separately, and the
+  366 PDBs shared by the two scans can disagree, so the dataset is part of the
+  key. Needs `openpyxl` to read the `.xlsx`; the app itself only reads the CSV.
+  Powers the **Consensus name / Motifs** columns in the Unique PDBs tab and the
+  **color-by-motif** / **color-by-enzyme** views in Validation. `2cys2his` has
+  no scan of its own and borrows another system's row where the PDB is covered
+  (~76 of its 284 PDBs). Add a system by listing its workbook in
+  `WORKBOOKS` at the top of `build_motif_data.py` and re-running it:
+
+  ```bash
+  uv run --with openpyxl python src/zn_cys_his/query_app/build_motif_data.py
+  ```
 
 ## Rebuild the database
 ```bash

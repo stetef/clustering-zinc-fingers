@@ -289,13 +289,11 @@ with tab_pdbs:
     cols = [c for c in meta_cols if c in unique_df.columns]
     view = unique_df[cols].copy()
 
-    # BLAST/PROSITE consensus name + motifs (3Cys1His only), shown before title.
-    motifs_df = motif_data.load_motifs()
-    if not motifs_df.empty:
-        view = view.merge(
-            motifs_df[["pdb_id", "consensus_name", "motifs"]], on="pdb_id", how="left")
-        view["consensus_name"] = view["consensus_name"].fillna("")
-        view["motifs"] = view["motifs"].fillna("")
+    # BLAST/PROSITE consensus name + motifs, shown before title. Scanned systems
+    # (3cys1his, 4cys) use their own scan; other datasets borrow another system's
+    # row for the same PDB where one exists (see motif_data.annotate).
+    if not motif_data.load_motifs().empty:
+        view = motif_data.annotate(view)
         title_at = list(view.columns).index("title") if "title" in view.columns else len(view.columns)
         for offset, col in enumerate(("consensus_name", "motifs")):
             view.insert(title_at + offset, col, view.pop(col))

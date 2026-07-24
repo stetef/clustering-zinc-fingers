@@ -671,15 +671,16 @@ def render() -> None:
     # "Color by family" is offered when the dataset carries a family label
     # (e.g. heme axial/distal ligand). It shows whether the geometry-driven
     # clusters coincide with chemical family identity. "Color by motif" is offered
-    # when the structures have PROSITE motif data (3Cys1His), and can highlight a
-    # single motif across the map.
+    # when the structures have PROSITE motif data (3cys1his, 4cys), and can
+    # highlight a single motif across the map. Motif/enzyme labels are read for
+    # *this* dataset — each system was BLAST/PROSITE-scanned separately.
     has_family_col = ("family" in tsne_df.columns
                       and tsne_df["family"].astype(str).str.strip().any())
-    motifs_raw = motif_data.load_motifs()
+    motifs_raw = motif_data.load_motifs(dataset)
     motif_df = motif_tsne(tsne_df, motifs_raw)
     motif_names = motif_option_list(motif_df)
     has_motif = bool(motif_names)
-    enzyme_labels = motif_data.enzyme_label_map()
+    enzyme_labels = motif_data.enzyme_label_map(dataset)
     enz_df = enzyme_tsne(tsne_df, enzyme_labels)
     has_enzyme = bool((enz_df["enzyme"] != "none").any())
 
