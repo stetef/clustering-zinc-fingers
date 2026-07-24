@@ -51,6 +51,7 @@ data/*/*
 !data/*/xyz-files/
 !data/*/calculated-spectra/
 cluster-output/
+data/heme/*
 
 # Stray logs anywhere.
 **/*.log
